@@ -91,11 +91,12 @@ suspend fun createUploadIntent(
     val batchSize = declared.fold(Bytes.NONE) { total, (_, size) -> total + size }
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
 
-    // Reserve inside the same transaction that reads the quota, so two batches cannot both fit in
-    // the same remaining space.
+    // The account row is locked for the length of the reservation. One transaction is not enough on
+    // its own: two of them read the same starting value and the second write overwrites the first,
+    // so both batches fit in space for one. QuotaConcurrencyTest is that race.
     val reserved =
         db {
-            val account = Accounts.selectAll().where { Accounts.id eq accountId }.single()
+            val account = Accounts.selectAll().where { Accounts.id eq accountId }.forUpdate().single()
             val quota = account.quota()
             if (!quota.fits(batchSize)) {
                 throw DomainException(
