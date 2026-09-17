@@ -14,11 +14,16 @@ import com.mantel.features.auth.consumeMagicLink
 import com.mantel.features.auth.requestMagicLink
 import com.mantel.features.auth.revokeSession
 import com.mantel.features.auth.startGitHubOAuth
+import com.mantel.features.media.claimWork
 import com.mantel.features.media.completeUploads
 import com.mantel.features.media.createUploadIntent
 import com.mantel.features.media.deleteItem
 import com.mantel.features.media.reorderItems
+import com.mantel.features.media.reportDerivatives
+import com.mantel.features.media.reportFailure
+import com.mantel.features.media.retryItem
 import com.mantel.features.media.setCaption
+import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
@@ -57,6 +62,7 @@ private val log = LoggerFactory.getLogger("com.mantel.http")
 /** What a request handler needs, assembled once at startup and passed in. */
 class Services(
     val config: Config,
+    val clock: Clock = Clock.system,
     val storage: ObjectStorage,
     val mailer: Mailer,
     val httpClient: HttpClient,
@@ -118,6 +124,14 @@ fun Application.module(services: Services) {
         patch("/api/albums/{id}/items/reorder") { reorderItems(call) }
         patch("/api/albums/{id}/items/{itemId}") { setCaption(call) }
         delete("/api/albums/{id}/items/{itemId}") { deleteItem(call, services.storage) }
+        post("/api/albums/{id}/items/{itemId}/retry") { retryItem(call, services.clock) }
+
+        // The worker has no database credentials, so it asks for work and reports outcomes here.
+        post("/api/worker/claim") { claimWork(call, services.config, services.clock) }
+        post("/api/worker/items/{itemId}/derivatives") {
+            reportDerivatives(call, services.config, services.clock)
+        }
+        post("/api/worker/items/{itemId}/failure") { reportFailure(call, services.config, services.clock) }
 
         get("/api/account/export") { exportAccount(call) }
         delete("/api/account") { deleteAccount(call, services.storage) }

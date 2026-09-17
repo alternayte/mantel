@@ -4,6 +4,7 @@ import com.mantel.allTables
 import com.mantel.http.Services
 import com.mantel.http.module
 import com.mantel.kernel.Bytes
+import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
 import com.mantel.kernel.DatabaseConfig
 import com.mantel.kernel.GitHubConfig
@@ -11,6 +12,7 @@ import com.mantel.kernel.Mail
 import com.mantel.kernel.Mailer
 import com.mantel.kernel.Schema
 import com.mantel.kernel.StorageConfig
+import com.mantel.kernel.WorkerConfig
 import com.mantel.storage.ObjectStorage
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -71,9 +73,10 @@ class RecordingMailer : Mailer {
 class RecordingStorage : ObjectStorage {
     data class Presign(val key: String, val contentType: String, val contentLength: Long)
 
-    val objects = mutableMapOf<String, String>()
+    val objects = mutableMapOf<String, ByteArray>()
     val deletedPrefixes = mutableListOf<String>()
     val presigns = mutableListOf<Presign>()
+    val uploaded = mutableListOf<Pair<String, String>>()
 
     override fun presignPut(
         key: String,
@@ -85,7 +88,23 @@ class RecordingStorage : ObjectStorage {
         return "https://storage.test/$key?signature=test&length=$contentLength"
     }
 
-    override fun sizeOf(key: String): Long? = objects[key]?.length?.toLong()
+    override fun sizeOf(key: String): Long? = objects[key]?.size?.toLong()
+
+    override fun download(
+        key: String,
+        to: java.nio.file.Path,
+    ) {
+        java.nio.file.Files.write(to, objects[key] ?: error("no object at $key"))
+    }
+
+    override fun upload(
+        key: String,
+        from: java.nio.file.Path,
+        contentType: String,
+    ) {
+        objects[key] = java.nio.file.Files.readAllBytes(from)
+        uploaded += key to contentType
+    }
 
     override fun delete(keys: List<String>) {
         keys.forEach { objects.remove(it) }
@@ -94,6 +113,17 @@ class RecordingStorage : ObjectStorage {
     override fun deletePrefix(prefix: String) {
         deletedPrefixes += prefix
         objects.keys.filter { it.startsWith(prefix) }.forEach { objects.remove(it) }
+    }
+}
+
+const val TEST_WORKER_TOKEN = "worker-token-for-tests"
+
+/** Time the tests move by hand, for claim timeouts and retry backoff. */
+class MutableClock(private var instant: java.time.Instant = java.time.Instant.parse("2026-01-01T00:00:00Z")) : Clock {
+    override fun now(): java.time.Instant = instant
+
+    fun advance(duration: java.time.Duration) {
+        instant = instant.plus(duration)
     }
 }
 
@@ -114,11 +144,20 @@ fun testConfig(github: GitHubConfig? = null) =
             ),
         smtp = null,
         github = github,
+        worker =
+            WorkerConfig(
+                token = TEST_WORKER_TOKEN,
+                claimTimeout = Duration.ofMinutes(10),
+                maxAttempts = 3,
+                batchSize = 4,
+                pollInterval = Duration.ofSeconds(1),
+            ),
     )
 
 class Harness(
     val mailer: RecordingMailer,
     val storage: RecordingStorage,
+    val clock: MutableClock,
 ) {
     /** The running application, for tests that ask the routing table what exists. */
     lateinit var application: Application
@@ -131,10 +170,11 @@ class Harness(
 fun withApp(
     github: GitHubConfig? = null,
     githubResponder: MockEngine? = null,
+    clock: MutableClock = MutableClock(),
     block: suspend ApplicationTestBuilder.(Harness) -> Unit,
 ) {
     TestDatabase.truncate()
-    val harness = Harness(RecordingMailer(), RecordingStorage())
+    val harness = Harness(RecordingMailer(), RecordingStorage(), clock)
     testApplication {
         val client =
             githubResponder?.let { engine ->
@@ -154,6 +194,7 @@ fun withApp(
             module(
                 Services(
                     config = testConfig(github),
+                    clock = clock,
                     storage = harness.storage,
                     mailer = harness.mailer,
                     httpClient = client,

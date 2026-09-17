@@ -16,6 +16,19 @@ interface ObjectStorage {
         expiresIn: Duration,
     ): String
 
+    /** Reads an object to a local file. The worker does this; the API never touches media bytes. */
+    fun download(
+        key: String,
+        to: java.nio.file.Path,
+    )
+
+    /** Writes a derivative. Only the worker calls this. */
+    fun upload(
+        key: String,
+        from: java.nio.file.Path,
+        contentType: String,
+    )
+
     /** The object's size, or null when it is not there. Used to confirm an upload actually arrived. */
     fun sizeOf(key: String): Long?
 

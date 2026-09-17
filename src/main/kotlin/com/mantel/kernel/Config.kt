@@ -1,5 +1,7 @@
 package com.mantel.kernel
 
+import java.time.Duration
+
 /**
  * Every configuration value the product reads, resolved once at startup.
  * A value belongs here only when a deployment will set it to something other than the default.
@@ -12,9 +14,10 @@ data class Config(
     val storage: StorageConfig,
     val smtp: SmtpConfig?,
     val github: GitHubConfig?,
+    val worker: WorkerConfig,
 ) {
     companion object {
-        fun fromEnvironment(env: (String) -> String? = System::getenv): Config =
+        fun fromEnvironment(env: (String) -> String? = Dotenv::lookup): Config =
             Config(
                 port = env("MANTEL_PORT")?.toInt() ?: 8080,
                 publicBaseUrl = env("MANTEL_PUBLIC_BASE_URL") ?: "http://localhost:8080",
@@ -47,6 +50,16 @@ data class Config(
                             startTls = env("MANTEL_SMTP_STARTTLS")?.toBoolean() ?: true,
                         )
                     },
+                worker =
+                    WorkerConfig(
+                        // The worker authenticates to the API with this and holds no database
+                        // credentials. Without it the worker endpoints are closed.
+                        token = env("MANTEL_WORKER_TOKEN"),
+                        claimTimeout = Duration.ofSeconds(env("MANTEL_CLAIM_TIMEOUT_SECONDS")?.toLong() ?: 600),
+                        maxAttempts = env("MANTEL_MAX_ATTEMPTS")?.toInt() ?: 3,
+                        batchSize = env("MANTEL_WORKER_BATCH")?.toInt() ?: 4,
+                        pollInterval = Duration.ofSeconds(env("MANTEL_WORKER_POLL_SECONDS")?.toLong() ?: 5),
+                    ),
                 github =
                     env("MANTEL_GITHUB_CLIENT_ID")?.let { clientId ->
                         GitHubConfig(
@@ -81,6 +94,19 @@ data class SmtpConfig(
     val password: String?,
     val from: String,
     val startTls: Boolean,
+)
+
+/**
+ * A claim older than claimTimeout is presumed abandoned and returns to the queue, which is how a
+ * crashed worker's item is recovered. It must be longer than the slowest job, or a running job is
+ * claimed twice.
+ */
+data class WorkerConfig(
+    val token: String?,
+    val claimTimeout: Duration,
+    val maxAttempts: Int,
+    val batchSize: Int,
+    val pollInterval: Duration,
 )
 
 data class GitHubConfig(

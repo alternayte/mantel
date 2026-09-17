@@ -103,6 +103,8 @@ review base="": check-slow
 dev:
     #!/usr/bin/env bash
     set -euo pipefail
+    # A clean clone has no .env, and the worker token has no default on purpose.
+    [ -f .env ] || { cp .env.example .env; echo "wrote .env from .env.example"; }
     docker compose up -d --wait postgres minio
     trap 'kill 0' EXIT
     ./gradlew --quiet --console=plain run &
@@ -112,6 +114,9 @@ dev:
 # recipe: worker
 # Run the same binary in worker mode against local compose.
 worker:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -f .env ] || { cp .env.example .env; echo "wrote .env from .env.example"; }
     ./gradlew --quiet --console=plain run --args="--worker"
 
 # recipe: migrate

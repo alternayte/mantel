@@ -7,6 +7,7 @@ import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.S3Configuration
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
+import software.amazon.awssdk.services.s3.model.GetObjectRequest
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException
@@ -14,6 +15,9 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest
 import java.net.URI
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.time.Duration
 
 class S3ObjectStorage(
@@ -59,6 +63,26 @@ class S3ObjectStorage(
         return presigner.presignPutObject(
             PutObjectPresignRequest.builder().signatureDuration(expiresIn).putObjectRequest(put).build(),
         ).url().toString()
+    }
+
+    override fun download(
+        key: String,
+        to: Path,
+    ) {
+        client.getObject(GetObjectRequest.builder().bucket(config.bucket).key(key).build()).use { source ->
+            Files.copy(source, to, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    override fun upload(
+        key: String,
+        from: Path,
+        contentType: String,
+    ) {
+        client.putObject(
+            PutObjectRequest.builder().bucket(config.bucket).key(key).contentType(contentType).build(),
+            from,
+        )
     }
 
     override fun sizeOf(key: String): Long? =

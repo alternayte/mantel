@@ -199,6 +199,51 @@ Names every item in the album exactly once, in the new order. `204`.
 `204`. Deletes the item's objects, returns its bytes to the account, and closes the gap in
 positions.
 
+### `POST /api/albums/{id}/items/{itemId}/retry`
+
+`204`. Puts a failed item back on the queue with its attempts reset. Only a failed item can be
+retried; anything else is `conflict`.
+
+## Worker endpoints
+
+The worker holds no database credentials. It asks for work and reports outcomes over HTTP, with
+`Authorization: Bearer $MANTEL_WORKER_TOKEN`. Without a configured token these are closed.
+
+### `POST /api/worker/claim`
+
+```json
+{ "limit": 4 }
+```
+
+Claims up to that many items with `SKIP LOCKED`, so two workers never take the same row. A claim
+older than `MANTEL_CLAIM_TIMEOUT_SECONDS` is presumed abandoned and is claimed again, which is what
+recovers an item from a worker that died holding it. Each claim counts an attempt.
+
+```json
+[ { "itemId": "…", "kind": "photo", "attempt": 1, "originalKey": "…",
+    "thumbKey": "…", "displayWebpKey": "…", "displayAvifKey": "…" } ]
+```
+
+The API names the derivative keys, so the key layout stays owned by one place.
+
+### `POST /api/worker/items/{itemId}/derivatives`
+
+```json
+{ "thumbKey": "…", "displayWebpKey": "…", "displayAvifKey": "…", "width": 2400, "height": 1600 }
+```
+
+Marks the item ready and settles the album. An album whose items have all finished becomes `ready`.
+
+### `POST /api/worker/items/{itemId}/failure`
+
+```json
+{ "error": "vips thumbnail failed: …" }
+```
+
+Puts the item back on the queue with a widening gap between attempts (1 minute, then 4, then 16).
+After `MANTEL_MAX_ATTEMPTS` the item is `failed` with `lastError` set, and the creator sees it as a
+failure to retry or remove. A failed item is never claimed again and never disappears.
+
 ## Item states
 
 `pending_upload → uploaded → processing → ready | failed`

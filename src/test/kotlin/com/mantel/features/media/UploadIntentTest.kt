@@ -83,6 +83,10 @@ class UploadIntentTest {
                     "PATCH /api/albums/{id}/items/reorder",
                     "PATCH /api/albums/{id}/items/{itemId}",
                     "DELETE /api/albums/{id}/items/{itemId}",
+                    "POST /api/albums/{id}/items/{itemId}/retry",
+                    "POST /api/worker/claim",
+                    "POST /api/worker/items/{itemId}/derivatives",
+                    "POST /api/worker/items/{itemId}/failure",
                 ),
                 routes,
             )
@@ -142,7 +146,7 @@ class UploadIntentTest {
             val (arrived, neverUploaded) = intent.items[0] to intent.items[1]
 
             // Only the first upload actually happened.
-            harness.storage.objects[harness.storage.presigns[0].key] = "0123456789"
+            harness.storage.objects[harness.storage.presigns[0].key] = "0123456789".toByteArray()
 
             val complete =
                 browser.post("/api/albums/${album.id}/uploads/complete") {

@@ -14,6 +14,7 @@ Mantel creates photo and video albums that are shared as a link. A recipient ope
 
 `just check` is the gate: every script in `checks/`, the web build, ktlint and the Gradle build.
 `just test` runs the tests alone. Docker must be running; the database tests use Testcontainers.
+The photo tests shell out to libvips. Install it with `brew install vips`; CI installs libvips-tools.
 
 `just check-slow` runs the read-only commands quoted in agent files.
 

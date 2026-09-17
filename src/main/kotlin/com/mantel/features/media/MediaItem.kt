@@ -66,6 +66,7 @@ object MediaItems : Table("media_item") {
     val attempts = integer("attempts")
     val lastError = text("last_error").nullable()
     val claimedAt = timestampWithTimeZone("claimed_at").nullable()
+    val nextAttemptAt = timestampWithTimeZone("next_attempt_at").nullable()
     val createdAt = timestampWithTimeZone("created_at")
     val readyAt = timestampWithTimeZone("ready_at").nullable()
 

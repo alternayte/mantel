@@ -50,7 +50,7 @@ class AccountLifecycleTest {
             assertEquals("nate@example.com", me.email)
 
             // Objects the account owns, as the worker would have written them.
-            harness.storage.objects["accounts/other/keep.jpg"] = "other account"
+            harness.storage.objects["accounts/other/keep.jpg"] = "other account".toByteArray()
             val prefixBefore = harness.storage.deletedPrefixes.size
 
             assertEquals(HttpStatusCode.NoContent, browser.delete("/api/account").status)
