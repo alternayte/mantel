@@ -17,4 +17,7 @@ interface ObjectStorage {
     ): String
 
     fun delete(keys: List<String>)
+
+    /** Every object under a prefix. Account deletion needs this before any row lists the keys. */
+    fun deletePrefix(prefix: String)
 }

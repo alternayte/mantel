@@ -6,9 +6,8 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.S3Configuration
-import software.amazon.awssdk.services.s3.model.Delete
-import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest
-import software.amazon.awssdk.services.s3.model.ObjectIdentifier
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest
@@ -61,19 +60,28 @@ class S3ObjectStorage(
     }
 
     override fun delete(keys: List<String>) {
-        if (keys.isEmpty()) return
-        keys.chunked(1000).forEach { chunk ->
-            client.deleteObjects(
-                DeleteObjectsRequest.builder()
-                    .bucket(config.bucket)
-                    .delete(
-                        Delete.builder()
-                            .objects(chunk.map { ObjectIdentifier.builder().key(it).build() })
-                            .build(),
-                    )
-                    .build(),
-            )
+        // One request per key. The batch DeleteObjects call needs a Content-MD5 header that the SDK
+        // no longer sends, and S3-compatible stores reject it; deletion is rare enough that the
+        // extra requests cost less than a compatibility trap in someone else's MinIO.
+        keys.forEach { key ->
+            client.deleteObject(DeleteObjectRequest.builder().bucket(config.bucket).key(key).build())
         }
+    }
+
+    override fun deletePrefix(prefix: String) {
+        var continuationToken: String? = null
+        do {
+            val listing =
+                client.listObjectsV2(
+                    ListObjectsV2Request.builder()
+                        .bucket(config.bucket)
+                        .prefix(prefix)
+                        .continuationToken(continuationToken)
+                        .build(),
+                )
+            delete(listing.contents().map { it.key() })
+            continuationToken = listing.nextContinuationToken()
+        } while (listing.isTruncated == true)
     }
 
     override fun close() {

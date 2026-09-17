@@ -29,6 +29,10 @@ dependencies {
     implementation(libs.ktor.server.call.logging)
     implementation(libs.ktor.server.default.headers)
 
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.angus.mail)
+
     implementation(libs.exposed.core)
     implementation(libs.exposed.jdbc)
     implementation(libs.exposed.java.time)
@@ -47,6 +51,7 @@ dependencies {
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit)
     testImplementation(libs.testcontainers.minio)
+    testImplementation(libs.ktor.client.mock)
     testImplementation(libs.postgresql)
     testImplementation(libs.flyway.postgresql)
 }

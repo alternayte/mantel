@@ -1,9 +1,16 @@
 package com.mantel
 
+import com.mantel.http.Services
 import com.mantel.http.startServer
 import com.mantel.kernel.Config
 import com.mantel.kernel.Schema
+import com.mantel.kernel.mailerFor
+import com.mantel.storage.S3ObjectStorage
 import com.mantel.worker.runWorker
+import io.ktor.client.HttpClient
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
 
 /**
  * One binary, two run modes. `--worker` renders derivatives; the default mode serves the API,
@@ -18,7 +25,18 @@ fun main(args: Array<String>) {
             val dataSource = Schema.dataSource(config.database)
             Schema.migrate(dataSource)
             Schema.connect(dataSource)
-            startServer(config)
+            val httpClient =
+                HttpClient {
+                    install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+                }
+            startServer(
+                Services(
+                    config = config,
+                    storage = S3ObjectStorage(config.storage),
+                    mailer = mailerFor(config.smtp),
+                    httpClient = httpClient,
+                ),
+            )
         }
     }
 }

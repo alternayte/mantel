@@ -53,3 +53,4 @@ tables only read it and are registered in `src/main/kotlin/com/mantel/SchemaRegi
 - upload intent: the request that checks quota and returns presigned PUTs before bytes move.
 - publish: the transition that creates an album's first live share link.
 - worker: the same binary in worker mode; renders derivatives and reports completion to the API.
+- session: a signed-in creator's browser, held by an HttpOnly cookie carrying a random secret and no identifier.

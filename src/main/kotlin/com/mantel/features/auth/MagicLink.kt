@@ -1,0 +1,147 @@
+package com.mantel.features.auth
+
+import com.mantel.features.account.Accounts
+import com.mantel.kernel.Clock
+import com.mantel.kernel.Config
+import com.mantel.kernel.DomainException
+import com.mantel.kernel.ErrorCode
+import com.mantel.kernel.Ids
+import com.mantel.kernel.Mail
+import com.mantel.kernel.Mailer
+import com.mantel.kernel.RateLimiter
+import com.mantel.kernel.db
+import com.mantel.kernel.sha256Hex
+import io.ktor.http.HttpStatusCode
+import io.ktor.server.application.ApplicationCall
+import io.ktor.server.request.receive
+import io.ktor.server.response.respond
+import io.ktor.server.response.respondRedirect
+import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.sql.ReferenceOption
+import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.and
+import org.jetbrains.exposed.sql.insert
+import org.jetbrains.exposed.sql.javatime.timestampWithTimeZone
+import org.jetbrains.exposed.sql.lowerCase
+import org.jetbrains.exposed.sql.selectAll
+import org.jetbrains.exposed.sql.update
+import java.time.Duration
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
+import java.util.UUID
+
+object MagicLinks : Table("magic_link") {
+    val tokenHash = text("token_hash")
+    val accountId = reference("account_id", Accounts.id, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.NO_ACTION)
+    val expiresAt = timestampWithTimeZone("expires_at")
+    val consumedAt = timestampWithTimeZone("consumed_at").nullable()
+    val createdAt = timestampWithTimeZone("created_at")
+
+    override val primaryKey = PrimaryKey(tokenHash)
+}
+
+@Serializable
+data class MagicLinkRequest(val email: String)
+
+private val LINK_LIFETIME: Duration = Duration.ofMinutes(15)
+private val EMAIL = Regex("^[^@\\s]+@[^@\\s.]+\\.[^@\\s]+$")
+
+/**
+ * Requesting a link is also how an account is created: there is no separate sign-up, and the
+ * response is the same either way, so the endpoint does not report whether an email is known.
+ */
+suspend fun requestMagicLink(
+    call: ApplicationCall,
+    config: Config,
+    mailer: Mailer,
+    limiter: RateLimiter,
+    clock: Clock = Clock.system,
+) {
+    val email = call.receive<MagicLinkRequest>().email.trim()
+    if (!EMAIL.matches(email)) {
+        throw DomainException(ErrorCode.VALIDATION_FAILED, "That is not an email address")
+    }
+    if (!limiter.tryConsume(email.lowercase())) {
+        throw DomainException(ErrorCode.RATE_LIMITED, "Too many links requested for this address. Wait an hour.")
+    }
+
+    val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
+    val secret = Ids.token(32)
+    val accountId =
+        db {
+            val existing =
+                Accounts
+                    .selectAll()
+                    .where { (Accounts.email.lowerCase() eq email.lowercase()) and Accounts.deletedAt.isNull() }
+                    .singleOrNull()
+                    ?.get(Accounts.id)
+            val id = existing ?: UUID.randomUUID()
+            if (existing == null) {
+                Accounts.insert {
+                    it[Accounts.id] = id
+                    it[Accounts.email] = email
+                    it[storageQuotaBytes] = config.defaultQuotaBytes
+                    it[storageUsedBytes] = 0
+                    it[createdAt] = now
+                }
+            }
+            MagicLinks.insert {
+                it[tokenHash] = sha256Hex(secret)
+                it[MagicLinks.accountId] = id
+                it[expiresAt] = now.plus(LINK_LIFETIME)
+                it[createdAt] = now
+            }
+            id
+        }
+
+    val link = "${config.publicBaseUrl}/api/auth/magic-link/callback?token=$secret"
+    mailer.send(
+        Mail(
+            to = email,
+            subject = "Your Mantel sign-in link",
+            body =
+                """
+                Open this link to sign in. It works once and expires in 15 minutes.
+
+                $link
+
+                If you did not ask for it, ignore this mail. Nothing happens until the link is opened.
+                """.trimIndent(),
+        ),
+    )
+    check(accountId != null)
+    call.respond(HttpStatusCode.Accepted, mapOf("status" to "sent"))
+}
+
+/** Consuming a link signs the browser in and sends it to the creator app. */
+suspend fun consumeMagicLink(
+    call: ApplicationCall,
+    clock: Clock = Clock.system,
+) {
+    val secret =
+        call.request.queryParameters["token"]
+            ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "No token")
+    val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
+
+    val accountId =
+        db {
+            val row =
+                MagicLinks
+                    .selectAll()
+                    .where {
+                        (MagicLinks.tokenHash eq sha256Hex(secret)) and
+                            MagicLinks.consumedAt.isNull() and
+                            (MagicLinks.expiresAt greater now)
+                    }
+                    .singleOrNull()
+            if (row != null) {
+                MagicLinks.update({ MagicLinks.tokenHash eq row[MagicLinks.tokenHash] }) {
+                    it[consumedAt] = now
+                }
+            }
+            row?.get(MagicLinks.accountId)
+        } ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That link has been used or has expired")
+
+    issueSession(call, accountId, clock)
+    call.respondRedirect("/app")
+}
