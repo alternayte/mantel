@@ -14,6 +14,27 @@ data class Derivatives(val thumb: Path, val displayWebp: Path, val displayAvif: 
  * rather than the worker.
  */
 class PhotoPipeline(private val vips: String = "vips", private val vipsheader: String = "vipsheader") {
+    /**
+     * libvips writes AVIF only when libheif was built with an AV1 encoder, and a package without one
+     * still has heifsave. A worker that starts without it fails every photo on its third derivative,
+     * so it is worth one encode at startup to find out.
+     */
+    fun verifyCodecs() {
+        val scratch = java.nio.file.Files.createTempDirectory("mantel-codec-check")
+        try {
+            val probe = scratch.resolve("probe.png")
+            run(vips, "black", probe.toString(), "16", "16")
+            run(vips, "copy", probe.toString(), "${scratch.resolve("probe.webp")}[Q=80,keep=none]")
+            run(vips, "copy", probe.toString(), "${scratch.resolve("probe.avif")}[Q=50,keep=none,compression=av1]")
+        } catch (failure: PipelineFailure) {
+            throw PipelineFailure(
+                "this build of libvips cannot write the derivatives the product serves: ${failure.message}",
+            )
+        } finally {
+            scratch.toFile().deleteRecursively()
+        }
+    }
+
     fun render(
         source: Path,
         into: Path,

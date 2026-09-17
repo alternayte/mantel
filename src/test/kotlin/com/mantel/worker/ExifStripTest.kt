@@ -83,6 +83,13 @@ class ExifStripTest {
     }
 
     @Test
+    fun `this libvips can write every derivative the product serves`() {
+        // A libvips without an AV1 encoder still has heifsave and fails only on the third
+        // derivative, in production. The worker runs this at startup for the same reason.
+        pipeline.verifyCodecs()
+    }
+
+    @Test
     fun `a file that is not an image fails loudly`() {
         val scratch = Files.createTempDirectory("exif-broken")
         val broken = scratch.resolve("original")

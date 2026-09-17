@@ -3,7 +3,13 @@
 FROM eclipse-temurin:21-jre-noble
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ffmpeg libvips-tools \
+ && apt-get install -y --no-install-recommends \
+      ffmpeg \
+      libvips-tools \
+      # libvips can write AVIF only when libheif has an AV1 encoder. Without this the photo
+      # pipeline fails on its third derivative, in production, one job at a time.
+      libheif-plugin-aomenc \
+      libheif-plugin-libde265 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

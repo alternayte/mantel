@@ -71,6 +71,7 @@ fun runWorker(config: Config) {
     S3ObjectStorage(config.storage).use { storage ->
         runBlocking {
             log.info("worker mode against {}", config.publicBaseUrl)
+            PhotoPipeline().verifyCodecs()
             val worker = Worker(config, token, http, storage, PhotoPipeline())
             while (true) {
                 val processed = worker.tick()
