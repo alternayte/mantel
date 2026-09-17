@@ -32,10 +32,11 @@ class ExifStripTest {
         val process = ProcessBuilder("vipsheader", "-a", file.toString()).redirectErrorStream(true).start()
         val output = process.inputStream.bufferedReader().readText()
         process.waitFor(30, TimeUnit.SECONDS)
-        // The first line is the summary and carries the file path, which is not metadata.
+        // A metadata line is "field-name: value". The summary line and any warning carry the file
+        // path, and a path is not metadata however much it looks like one.
         return output.lines()
-            .drop(1)
             .map { it.substringBefore(':').trim() }
+            .filter { field -> field.isNotEmpty() && !field.contains('/') && !field.contains(' ') }
             .filter { field ->
                 listOf("exif", "gps", "xmp", "iptc", "make", "model", "orientation")
                     .any { field.lowercase().contains(it) }
@@ -44,7 +45,7 @@ class ExifStripTest {
 
     @Test
     fun `the fixture really does carry location and camera data`() {
-        val scratch = Files.createTempDirectory("exif-source")
+        val scratch = Files.createTempDirectory("mantel-source")
         val source = fixture(scratch)
         val fields = metadataFieldsOf(source)
         assertTrue(fields.any { it.contains("Make") }, "fixture lost its EXIF: $fields")
@@ -53,7 +54,7 @@ class ExifStripTest {
 
     @Test
     fun `no derivative carries EXIF, GPS or camera data`() {
-        val scratch = Files.createTempDirectory("exif-strip")
+        val scratch = Files.createTempDirectory("mantel-strip")
         val source = fixture(scratch)
 
         val rendered = pipeline.render(source, scratch)
@@ -69,7 +70,7 @@ class ExifStripTest {
 
     @Test
     fun `the derivatives are the sizes the design asks for`() {
-        val scratch = Files.createTempDirectory("exif-sizes")
+        val scratch = Files.createTempDirectory("mantel-sizes")
         val source = fixture(scratch)
 
         val rendered = pipeline.render(source, scratch)
@@ -83,6 +84,22 @@ class ExifStripTest {
     }
 
     @Test
+    fun `the check would notice if the strip were removed`() {
+        // The same encoder, with metadata kept. If this finds nothing then the test above proves
+        // nothing, and a silent change to keep=all would pass unnoticed.
+        val scratch = Files.createTempDirectory("mantel-kept")
+        val source = fixture(scratch)
+        val kept = scratch.resolve("kept.webp")
+        ProcessBuilder("vips", "copy", source.toString(), "$kept[Q=80,keep=all]")
+            .redirectErrorStream(true)
+            .start()
+            .waitFor(60, TimeUnit.SECONDS)
+
+        val fields = metadataFieldsOf(kept)
+        assertTrue(fields.any { it.lowercase().contains("gps") }, "the detector found no GPS: $fields")
+    }
+
+    @Test
     fun `this libvips can write every derivative the product serves`() {
         // A libvips without an AV1 encoder still has heifsave and fails only on the third
         // derivative, in production. The worker runs this at startup for the same reason.
@@ -91,7 +108,7 @@ class ExifStripTest {
 
     @Test
     fun `a file that is not an image fails loudly`() {
-        val scratch = Files.createTempDirectory("exif-broken")
+        val scratch = Files.createTempDirectory("mantel-broken")
         val broken = scratch.resolve("original")
         Files.writeString(broken, "this is not a photograph")
 
