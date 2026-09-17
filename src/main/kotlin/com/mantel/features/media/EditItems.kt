@@ -1,6 +1,7 @@
 package com.mantel.features.media
 
 import com.mantel.features.account.Accounts
+import com.mantel.features.account.quota
 import com.mantel.features.album.Albums
 import com.mantel.features.album.albumIdFrom
 import com.mantel.features.album.itemIdFrom
@@ -32,8 +33,6 @@ data class ReorderRequest(val itemIds: List<String>)
 @Serializable
 data class CaptionRequest(val caption: String? = null)
 
-private const val MAX_CAPTION = 500
-
 /**
  * The client sends the album's items in their new order, all of them. A partial reorder would need
  * the server to guess what happened to the rest.
@@ -46,7 +45,7 @@ suspend fun reorderItems(
     val albumId = album[Albums.id]
     val requested =
         call.receive<ReorderRequest>().itemIds.map { raw ->
-            runCatching { UUID.fromString(raw) }.getOrNull()
+            runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
                 ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "$raw is not an item id")
         }
 
@@ -75,17 +74,14 @@ suspend fun setCaption(
 ) {
     val album = requireOwnAlbum(call, albumIdFrom(call))
     val itemId = itemIdFrom(call)
-    val caption = call.receive<CaptionRequest>().caption?.trim()?.ifEmpty { null }
-    if (caption != null && caption.length > MAX_CAPTION) {
-        throw DomainException(ErrorCode.VALIDATION_FAILED, "A caption is at most $MAX_CAPTION characters")
-    }
+    val caption = Caption.of(call.receive<CaptionRequest>().caption)
 
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     val changed =
         db {
             val updated =
                 MediaItems.update({ (MediaItems.id eq itemId) and (MediaItems.albumId eq album[Albums.id]) }) {
-                    it[MediaItems.caption] = caption
+                    it[MediaItems.caption] = caption?.value
                 }
             if (updated > 0) Albums.update({ Albums.id eq album[Albums.id] }) { it[updatedAt] = now }
             updated
@@ -133,8 +129,7 @@ suspend fun deleteItem(
         }
         val account = Accounts.selectAll().where { Accounts.id eq album[Albums.accountId] }.single()
         Accounts.update({ Accounts.id eq album[Albums.accountId] }) {
-            it[storageUsedBytes] =
-                (account[Accounts.storageUsedBytes] - item[MediaItems.byteSize]).coerceAtLeast(0)
+            it[storageUsedBytes] = account.quota().release(item[MediaItems.byteSize]).used
         }
     }
     call.respond(HttpStatusCode.NoContent)

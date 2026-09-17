@@ -21,7 +21,7 @@ suspend fun archiveAlbum(
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     db {
         Albums.update({ Albums.id eq album[Albums.id] }) {
-            it[status] = AlbumStatus.ARCHIVED.wire
+            it[status] = AlbumStatus.ARCHIVED
             it[archivedAt] = now
             it[updatedAt] = now
         }

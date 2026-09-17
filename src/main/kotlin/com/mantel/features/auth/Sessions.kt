@@ -1,5 +1,6 @@
 package com.mantel.features.auth
 
+import com.mantel.features.account.AccountId
 import com.mantel.features.account.Accounts
 import com.mantel.kernel.Clock
 import com.mantel.kernel.DomainException
@@ -19,7 +20,6 @@ import org.jetbrains.exposed.sql.selectAll
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import java.util.UUID
 
 object Sessions : Table("session") {
     val id = text("id")
@@ -40,7 +40,7 @@ private val SESSION_LIFETIME: Duration = Duration.ofDays(30)
  */
 suspend fun issueSession(
     call: ApplicationCall,
-    accountId: UUID,
+    accountId: AccountId,
     clock: Clock = Clock.system,
 ): String {
     val secret = Ids.token(32)
@@ -70,7 +70,7 @@ suspend fun revokeSession(call: ApplicationCall) {
 suspend fun currentAccountId(
     call: ApplicationCall,
     clock: Clock = Clock.system,
-): UUID? {
+): AccountId? {
     val secret = call.request.cookies[SESSION_COOKIE] ?: return null
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     return db {
@@ -86,5 +86,5 @@ suspend fun currentAccountId(
     }
 }
 
-suspend fun requireAccountId(call: ApplicationCall): UUID =
+suspend fun requireAccountId(call: ApplicationCall): AccountId =
     currentAccountId(call) ?: throw DomainException(ErrorCode.UNAUTHENTICATED, "Sign in first")

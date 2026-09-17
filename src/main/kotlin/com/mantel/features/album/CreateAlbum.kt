@@ -1,9 +1,9 @@
 package com.mantel.features.album
 
 import com.mantel.features.auth.requireAccountId
+import com.mantel.kernel.Bytes
 import com.mantel.kernel.Clock
-import com.mantel.kernel.DomainException
-import com.mantel.kernel.ErrorCode
+import com.mantel.kernel.Ids
 import com.mantel.kernel.db
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
@@ -13,7 +13,6 @@ import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.insert
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import java.util.UUID
 
 @Serializable
 data class CreateAlbumRequest(val title: String, val description: String? = null)
@@ -31,30 +30,26 @@ data class AlbumSummary(
     val updatedAt: String,
 )
 
-private const val MAX_TITLE = 200
-
 suspend fun createAlbum(
     call: ApplicationCall,
     clock: Clock = Clock.system,
 ) {
     val accountId = requireAccountId(call)
     val request = call.receive<CreateAlbumRequest>()
-    val title = request.title.trim()
-    if (title.isEmpty() || title.length > MAX_TITLE) {
-        throw DomainException(ErrorCode.VALIDATION_FAILED, "A title is between 1 and $MAX_TITLE characters")
-    }
+    val title = AlbumTitle.of(request.title)
+    val description = request.description?.trim()?.ifEmpty { null }
 
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
-    val id = UUID.randomUUID()
+    val id = AlbumId(Ids.uuidV7(clock))
     db {
         Albums.insert {
             it[Albums.id] = id
             it[Albums.accountId] = accountId
             it[Albums.title] = title
-            it[description] = request.description?.trim()?.ifEmpty { null }
-            it[status] = AlbumStatus.DRAFT.wire
+            it[Albums.description] = description
+            it[status] = AlbumStatus.DRAFT
             it[itemCount] = 0
-            it[totalBytes] = 0
+            it[totalBytes] = Bytes.NONE
             it[createdAt] = now
             it[updatedAt] = now
         }
@@ -64,8 +59,8 @@ suspend fun createAlbum(
         HttpStatusCode.Created,
         AlbumSummary(
             id = id.toString(),
-            title = title,
-            description = request.description?.trim()?.ifEmpty { null },
+            title = title.value,
+            description = description,
             status = AlbumStatus.DRAFT.wire,
             itemCount = 0,
             totalBytes = 0,

@@ -1,6 +1,8 @@
 package com.mantel.features.auth
 
+import com.mantel.features.account.AccountId
 import com.mantel.features.account.Accounts
+import com.mantel.kernel.Bytes
 import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
@@ -25,7 +27,6 @@ import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.update
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import java.util.UUID
 
 private const val STATE_COOKIE = "mantel_oauth_state"
 
@@ -118,14 +119,14 @@ suspend fun completeGitHubOAuth(
                         .singleOrNull()
             when (byEmail) {
                 null -> {
-                    val id = UUID.randomUUID()
+                    val id = AccountId(Ids.uuidV7(clock))
                     Accounts.insert {
                         it[Accounts.id] = id
                         it[Accounts.email] = email
                         it[githubId] = user.id
                         it[displayName] = user.name ?: user.login
-                        it[storageQuotaBytes] = config.defaultQuotaBytes
-                        it[storageUsedBytes] = 0
+                        it[storageQuotaBytes] = config.defaultQuota
+                        it[storageUsedBytes] = Bytes.NONE
                         it[createdAt] = now
                     }
                     id

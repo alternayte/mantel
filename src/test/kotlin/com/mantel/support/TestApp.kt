@@ -3,6 +3,7 @@ package com.mantel.support
 import com.mantel.allTables
 import com.mantel.http.Services
 import com.mantel.http.module
+import com.mantel.kernel.Bytes
 import com.mantel.kernel.Config
 import com.mantel.kernel.DatabaseConfig
 import com.mantel.kernel.GitHubConfig
@@ -99,7 +100,7 @@ fun testConfig(github: GitHubConfig? = null) =
     Config(
         port = 0,
         publicBaseUrl = "http://localhost",
-        defaultQuotaBytes = 10L * 1024 * 1024 * 1024,
+        defaultQuota = Bytes(10L * 1024 * 1024 * 1024),
         database = TestDatabase.config,
         storage =
             StorageConfig(

@@ -1,6 +1,7 @@
 package com.mantel.features.album
 
 import com.mantel.features.auth.requireAccountId
+import com.mantel.features.media.ItemState
 import com.mantel.features.media.MediaItems
 import com.mantel.kernel.db
 import io.ktor.server.application.ApplicationCall
@@ -42,11 +43,11 @@ data class AlbumView(
 fun ResultRow.toSummary() =
     AlbumSummary(
         id = this[Albums.id].toString(),
-        title = this[Albums.title],
+        title = this[Albums.title].value,
         description = this[Albums.description],
-        status = this[Albums.status],
+        status = this[Albums.status].wire,
         itemCount = this[Albums.itemCount],
-        totalBytes = this[Albums.totalBytes],
+        totalBytes = this[Albums.totalBytes].value,
         coverItemId = this[Albums.coverItemId]?.toString(),
         createdAt = this[Albums.createdAt].toInstant().toString(),
         updatedAt = this[Albums.updatedAt].toInstant().toString(),
@@ -56,9 +57,9 @@ fun ResultRow.toItemView() =
     ItemView(
         id = this[MediaItems.id].toString(),
         position = this[MediaItems.position],
-        kind = this[MediaItems.kind],
-        status = this[MediaItems.status],
-        byteSize = this[MediaItems.byteSize],
+        kind = this[MediaItems.kind].wire,
+        status = this[MediaItems.status].wire,
+        byteSize = this[MediaItems.byteSize].value,
         caption = this[MediaItems.caption],
         width = this[MediaItems.width],
         height = this[MediaItems.height],
@@ -127,13 +128,14 @@ suspend fun getAlbumProgress(call: ApplicationCall) {
                 .orderBy(MediaItems.position to SortOrder.ASC)
                 .map { it.toItemView() }
         }
+    val states = items.map { ItemState.fromWire(it.status) }
     call.respond(
         AlbumProgress(
-            status = album[Albums.status],
+            status = album[Albums.status].wire,
             total = items.size,
-            ready = items.count { it.status == "ready" },
-            failed = items.count { it.status == "failed" },
-            pending = items.count { it.status !in setOf("ready", "failed") },
+            ready = states.count { it == ItemState.READY },
+            failed = states.count { it == ItemState.FAILED },
+            pending = states.count { it != ItemState.READY && it != ItemState.FAILED },
             items = items,
         ),
     )

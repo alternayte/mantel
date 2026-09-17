@@ -4,6 +4,7 @@ import com.mantel.features.account.Accounts
 import com.mantel.features.account.Me
 import com.mantel.features.album.AlbumSummary
 import com.mantel.features.album.AlbumView
+import com.mantel.kernel.Bytes
 import com.mantel.support.createAlbum
 import com.mantel.support.signedIn
 import com.mantel.support.uploadIntent
@@ -31,7 +32,7 @@ class QuotaPresignTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun setQuota(bytes: Long) {
-        transaction { Accounts.update { it[storageQuotaBytes] = bytes } }
+        transaction { Accounts.update { it[storageQuotaBytes] = Bytes(bytes) } }
     }
 
     @Test

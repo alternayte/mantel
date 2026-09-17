@@ -1,6 +1,8 @@
 package com.mantel.features.auth
 
+import com.mantel.features.account.AccountId
 import com.mantel.features.account.Accounts
+import com.mantel.kernel.Bytes
 import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
@@ -28,7 +30,6 @@ import org.jetbrains.exposed.sql.update
 import java.time.Duration
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import java.util.UUID
 
 object MagicLinks : Table("magic_link") {
     val tokenHash = text("token_hash")
@@ -75,13 +76,13 @@ suspend fun requestMagicLink(
                     .where { (Accounts.email.lowerCase() eq email.lowercase()) and Accounts.deletedAt.isNull() }
                     .singleOrNull()
                     ?.get(Accounts.id)
-            val id = existing ?: UUID.randomUUID()
+            val id = existing ?: AccountId(Ids.uuidV7(clock))
             if (existing == null) {
                 Accounts.insert {
                     it[Accounts.id] = id
                     it[Accounts.email] = email
-                    it[storageQuotaBytes] = config.defaultQuotaBytes
-                    it[storageUsedBytes] = 0
+                    it[storageQuotaBytes] = config.defaultQuota
+                    it[storageUsedBytes] = Bytes.NONE
                     it[createdAt] = now
                 }
             }

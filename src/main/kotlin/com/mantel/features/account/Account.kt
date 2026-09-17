@@ -1,7 +1,17 @@
 package com.mantel.features.account
 
+import com.mantel.kernel.Bytes
+import com.mantel.kernel.Quota
+import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.javatime.timestampWithTimeZone
+import java.util.UUID
+
+/** A creator's identity. Distinct from an album id and an item id, and the compiler knows it. */
+@JvmInline
+value class AccountId(val value: UUID) {
+    override fun toString() = value.toString()
+}
 
 /**
  * The creator. Flyway builds this table; these columns only name what the code reads.
@@ -9,16 +19,18 @@ import org.jetbrains.exposed.sql.javatime.timestampWithTimeZone
  * single call rather than a walk over rows that may not exist yet.
  */
 object Accounts : Table("account") {
-    val id = uuid("id")
+    val id = uuid("id").transform({ AccountId(it) }, { it.value })
     val email = text("email")
     val githubId = long("github_id").nullable()
     val displayName = text("display_name").nullable()
-    val storageQuotaBytes = long("storage_quota_bytes")
-    val storageUsedBytes = long("storage_used_bytes")
+    val storageQuotaBytes = long("storage_quota_bytes").transform({ Bytes(it) }, { it.value })
+    val storageUsedBytes = long("storage_used_bytes").transform({ Bytes(it) }, { it.value })
     val createdAt = timestampWithTimeZone("created_at")
     val deletedAt = timestampWithTimeZone("deleted_at").nullable()
 
     override val primaryKey = PrimaryKey(id)
 }
 
-fun storagePrefixFor(accountId: java.util.UUID): String = "accounts/$accountId/"
+fun ResultRow.quota() = Quota(limit = this[Accounts.storageQuotaBytes], used = this[Accounts.storageUsedBytes])
+
+fun storagePrefixFor(accountId: AccountId): String = "accounts/$accountId/"

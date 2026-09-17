@@ -1,15 +1,56 @@
 package com.mantel.features.media
 
 import com.mantel.features.album.Albums
+import com.mantel.kernel.Bytes
+import com.mantel.kernel.DomainException
+import com.mantel.kernel.ErrorCode
 import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.javatime.timestampWithTimeZone
+import java.util.UUID
+
+@JvmInline
+value class ItemId(val value: UUID) {
+    override fun toString() = value.toString()
+}
+
+@JvmInline
+value class Caption private constructor(val value: String) {
+    override fun toString() = value
+
+    companion object {
+        const val MAX = 500
+
+        /** Null for an absent or emptied caption, which is a caption's normal state. */
+        fun of(raw: String?): Caption? {
+            val trimmed = raw?.trim().orEmpty()
+            if (trimmed.isEmpty()) return null
+            if (trimmed.length > MAX) {
+                throw DomainException(ErrorCode.VALIDATION_FAILED, "A caption is at most $MAX characters")
+            }
+            return Caption(trimmed)
+        }
+    }
+}
+
+enum class MediaKind {
+    PHOTO,
+    VIDEO,
+    ;
+
+    val wire: String get() = name.lowercase()
+
+    companion object {
+        fun fromWire(value: String): MediaKind = entries.firstOrNull { it.wire == value } ?: error("unknown media kind: $value")
+    }
+}
 
 object MediaItems : Table("media_item") {
-    val id = uuid("id")
-    val albumId = reference("album_id", Albums.id, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.NO_ACTION)
+    val id = uuid("id").transform({ ItemId(it) }, { it.value })
+    val albumId =
+        reference("album_id", Albums.id, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.NO_ACTION)
     val position = integer("position")
-    val kind = text("kind")
+    val kind = text("kind").transform({ MediaKind.fromWire(it) }, { it.wire })
     val originalKey = text("original_key")
     val thumbKey = text("thumb_key").nullable()
     val displayWebpKey = text("display_webp_key").nullable()
@@ -19,9 +60,9 @@ object MediaItems : Table("media_item") {
     val width = integer("width").nullable()
     val height = integer("height").nullable()
     val durationMs = integer("duration_ms").nullable()
-    val byteSize = long("byte_size")
+    val byteSize = long("byte_size").transform({ Bytes(it) }, { it.value })
     val caption = text("caption").nullable()
-    val status = text("status")
+    val status = text("status").transform({ ItemState.fromWire(it) }, { it.wire })
     val attempts = integer("attempts")
     val lastError = text("last_error").nullable()
     val claimedAt = timestampWithTimeZone("claimed_at").nullable()
@@ -29,14 +70,6 @@ object MediaItems : Table("media_item") {
     val readyAt = timestampWithTimeZone("ready_at").nullable()
 
     override val primaryKey = PrimaryKey(id)
-}
-
-enum class MediaKind {
-    PHOTO,
-    VIDEO,
-    ;
-
-    val wire: String get() = name.lowercase()
 }
 
 /**

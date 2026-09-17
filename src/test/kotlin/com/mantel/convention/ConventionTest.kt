@@ -99,6 +99,49 @@ class ConventionTest {
     }
 
     @Test
+    fun `row ids come from the v7 generator, never from randomUUID`() {
+        val offenders =
+            kotlinSources(serverRoot)
+                .filter { it.readText().contains("randomUUID") }
+                .map { it.relativeTo(repoRoot).toString() }
+        assertTrue(offenders.isEmpty()) {
+            "a random v4 id scatters across the index. Use Ids.uuidV7(): $offenders"
+        }
+    }
+
+    @Test
+    fun `state names are the enum, not string literals`() {
+        // The wire names belong to the enums that define them. Comparing a status to a literal is
+        // how a typo becomes a silently wrong count.
+        val stateWords =
+            Regex("\"(pending_upload|uploaded|processing|ready|failed|draft|published|archived)\"")
+        val defining = setOf("ItemState.kt", "Album.kt")
+        val offenders =
+            kotlinSources(serverRoot)
+                .filter { it.name !in defining && stateWords.containsMatchIn(it.readText()) }
+                .map { it.relativeTo(repoRoot).toString() }
+        assertTrue(offenders.isEmpty()) { "a state named as a string: $offenders" }
+    }
+
+    @Test
+    fun `an id in a signature is a value class, not a bare UUID`() {
+        val bareUuid = Regex(":\\s*UUID[?,)\\s]")
+        val offenders =
+            kotlinSources(serverRoot.resolve("features"))
+                .filter { file ->
+                    file.readText()
+                        .lines()
+                        // The value classes themselves wrap a UUID; that is the point of them.
+                        .filterNot { it.contains("value class") }
+                        .any { bareUuid.containsMatchIn(it) }
+                }
+                .map { it.relativeTo(repoRoot).toString() }
+        assertTrue(offenders.isEmpty()) {
+            "AccountId, AlbumId and ItemId exist so the compiler catches a swap: $offenders"
+        }
+    }
+
+    @Test
     fun `web route files route and nothing else`() {
         val dataAccess = Regex("\\bfetch\\(|axios|useMutation\\(")
         val offenders =

@@ -38,7 +38,7 @@ suspend fun completeUploads(
     val request = call.receive<CompleteUploadsRequest>()
     val itemIds =
         request.itemIds.map { raw ->
-            runCatching { UUID.fromString(raw) }.getOrNull()
+            runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
                 ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "$raw is not an item id")
         }
     if (itemIds.isEmpty()) throw DomainException(ErrorCode.VALIDATION_FAILED, "No items named")
@@ -49,7 +49,7 @@ suspend fun completeUploads(
                 .where {
                     (MediaItems.albumId eq albumId) and
                         (MediaItems.id inList itemIds) and
-                        (MediaItems.status eq ItemState.PENDING_UPLOAD.wire)
+                        (MediaItems.status eq ItemState.PENDING_UPLOAD)
                 }
                 .associate { it[MediaItems.id] to it[MediaItems.originalKey] }
         }
@@ -59,7 +59,7 @@ suspend fun completeUploads(
     db {
         arrived.keys.forEach { itemId ->
             MediaItems.update({ MediaItems.id eq itemId }) {
-                it[status] = transition(ItemState.PENDING_UPLOAD, ItemEvent.UploadObserved).wire
+                it[status] = transition(ItemState.PENDING_UPLOAD, ItemEvent.UploadObserved)
             }
         }
     }

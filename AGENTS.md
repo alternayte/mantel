@@ -38,6 +38,9 @@ tables only read it and are registered in `src/main/kotlin/com/mantel/SchemaRegi
 - The REST API is the only interface; every client consumes it and no client gets a branch of its own.
 - The API owns every write to PostgreSQL. The worker has no database credentials.
 - No event sourcing. Media lifecycle state is a pure transition function persisted to a column.
+- Row ids are UUIDv7 from `Ids.uuidV7`, never `randomUUID`; they sort by creation time.
+- An id, a title, a caption and a byte count are value classes, not String, UUID or Long. A rule lives in the type, once.
+- A state is its enum end to end, including in Exposed columns. No status string literals outside the enum that defines them.
 
 ## Domain words
 

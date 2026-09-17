@@ -1,5 +1,6 @@
 package com.mantel.features.album
 
+import com.mantel.features.media.ItemId
 import com.mantel.features.media.MediaItems
 import com.mantel.kernel.Clock
 import com.mantel.kernel.DomainException
@@ -32,17 +33,14 @@ suspend fun updateAlbum(
     val albumId = album[Albums.id]
     val request = call.receive<UpdateAlbumRequest>()
 
-    val title = request.title?.trim()
-    if (title != null && (title.isEmpty() || title.length > 200)) {
-        throw DomainException(ErrorCode.VALIDATION_FAILED, "A title is between 1 and 200 characters")
-    }
+    val title = request.title?.let { AlbumTitle.of(it) }
 
     // The cover is one of this album's own items, which is the whole reason this is checked here
     // and not left to the foreign key.
     val cover =
         request.coverItemId?.let { raw ->
             val itemId =
-                runCatching { UUID.fromString(raw) }.getOrNull()
+                runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
                     ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That is not an item id")
             db {
                 MediaItems.selectAll()

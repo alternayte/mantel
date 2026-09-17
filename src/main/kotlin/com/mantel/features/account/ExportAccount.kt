@@ -35,8 +35,8 @@ suspend fun exportAccount(call: ApplicationCall) {
                     email = it[Accounts.email],
                     displayName = it[Accounts.displayName],
                     createdAt = it[Accounts.createdAt].toInstant().toString(),
-                    storageQuotaBytes = it[Accounts.storageQuotaBytes],
-                    storageUsedBytes = it[Accounts.storageUsedBytes],
+                    storageQuotaBytes = it[Accounts.storageQuotaBytes].value,
+                    storageUsedBytes = it[Accounts.storageUsedBytes].value,
                 )
             }
         } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such account")

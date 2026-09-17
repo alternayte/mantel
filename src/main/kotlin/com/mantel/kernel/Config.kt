@@ -7,7 +7,7 @@ package com.mantel.kernel
 data class Config(
     val port: Int,
     val publicBaseUrl: String,
-    val defaultQuotaBytes: Long,
+    val defaultQuota: Bytes,
     val database: DatabaseConfig,
     val storage: StorageConfig,
     val smtp: SmtpConfig?,
@@ -19,7 +19,7 @@ data class Config(
                 port = env("MANTEL_PORT")?.toInt() ?: 8080,
                 publicBaseUrl = env("MANTEL_PUBLIC_BASE_URL") ?: "http://localhost:8080",
                 // One number, no tiers. SDD.md 14.1 leaves pricing open; this is not it.
-                defaultQuotaBytes = env("MANTEL_DEFAULT_QUOTA_BYTES")?.toLong() ?: (10L * 1024 * 1024 * 1024),
+                defaultQuota = Bytes(env("MANTEL_DEFAULT_QUOTA_BYTES")?.toLong() ?: (10L * 1024 * 1024 * 1024)),
                 database =
                     DatabaseConfig(
                         url = env("MANTEL_DB_URL") ?: "jdbc:postgresql://localhost:5432/mantel",

@@ -25,8 +25,8 @@ suspend fun getMe(call: ApplicationCall) {
                 Me(
                     email = it[Accounts.email],
                     displayName = it[Accounts.displayName],
-                    storageQuotaBytes = it[Accounts.storageQuotaBytes],
-                    storageUsedBytes = it[Accounts.storageUsedBytes],
+                    storageQuotaBytes = it[Accounts.storageQuotaBytes].value,
+                    storageUsedBytes = it[Accounts.storageUsedBytes].value,
                 )
             }
         } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such account")
