@@ -1,0 +1,10 @@
+.claude/skills
+.agents/handoff
+SDD.md
+BUILD.md
+
+.env
+build/
+.gradle/
+web/node_modules/
+web/dist/
