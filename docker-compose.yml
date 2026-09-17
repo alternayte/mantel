@@ -25,9 +25,11 @@ services:
     environment:
       MINIO_ROOT_USER: mantel
       MINIO_ROOT_PASSWORD: mantel-development
+    # Host ports avoid 9000, which another MinIO on this machine already holds. The container
+    # still listens on 9000; MANTEL_S3_ENDPOINT in .env must name the host port chosen here.
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MANTEL_MINIO_PORT:-9100}:9000"
+      - "${MANTEL_MINIO_CONSOLE_PORT:-9101}:9001"
     volumes:
       - minio-data:/data
     healthcheck:

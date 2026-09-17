@@ -23,7 +23,7 @@ data class Config(
                     ),
                 storage =
                     StorageConfig(
-                        endpoint = env("MANTEL_S3_ENDPOINT") ?: "http://localhost:9000",
+                        endpoint = env("MANTEL_S3_ENDPOINT") ?: "http://localhost:9100",
                         region = env("MANTEL_S3_REGION") ?: "auto",
                         bucket = env("MANTEL_S3_BUCKET") ?: "mantel",
                         accessKeyId = env("MANTEL_S3_ACCESS_KEY_ID") ?: "mantel",
