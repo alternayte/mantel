@@ -21,6 +21,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.headersOf
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.server.application.Application
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
@@ -118,7 +119,10 @@ fun testConfig(github: GitHubConfig? = null) =
 class Harness(
     val mailer: RecordingMailer,
     val storage: RecordingStorage,
-)
+) {
+    /** The running application, for tests that ask the routing table what exists. */
+    lateinit var application: Application
+}
 
 /**
  * Boots the real routing over the real database with a recording mailer and storage. `github`
@@ -146,6 +150,7 @@ fun withApp(
                 install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
             }
         application {
+            harness.application = this
             module(
                 Services(
                     config = testConfig(github),

@@ -1,14 +1,15 @@
 package com.mantel.features.media
 
 import com.mantel.features.album.AlbumSummary
+import com.mantel.support.browser
 import com.mantel.support.createAlbum
+import com.mantel.support.routeInventory
 import com.mantel.support.signedIn
 import com.mantel.support.uploadIntent
 import com.mantel.support.withApp
 import io.ktor.client.call.body
 import io.ktor.client.request.get
 import io.ktor.client.request.post
-import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -48,32 +49,43 @@ class UploadIntentTest {
         }
 
     @Test
-    fun `the API has no route that accepts image bytes`() =
+    fun `the API registers no route that could take an upload`() =
         withApp { harness ->
-            val browser = signedIn(harness)
-            val album = browser.createAlbum().body<AlbumSummary>()
-            val intent =
-                json.decodeFromString<UploadIntentResponse>(
-                    browser.uploadIntent(
-                        album.id,
-                        """{"files":[{"filename":"beach.jpg","contentType":"image/jpeg","sizeBytes":2048}]}""",
-                    ).bodyAsText(),
-                )
-            val itemId = intent.items.single().itemId
-            val bytes = ByteArray(2048) { 0x42 }
+            // The test application builds itself on first use.
+            browser().get("/api/health")
+            val routes = harness.application.routeInventory()
 
-            // Every shape a client might try if the presigned URL were ignored.
-            listOf(
-                browser.put("/api/albums/${album.id}/items/$itemId") { setBody(bytes) },
-                browser.post("/api/albums/${album.id}/items/$itemId") { setBody(bytes) },
-                browser.post("/api/albums/${album.id}/upload") { setBody(bytes) },
-                browser.put("/api/albums/${album.id}") { setBody(bytes) },
-            ).forEach { response ->
-                assertTrue(
-                    response.status == HttpStatusCode.NotFound || response.status == HttpStatusCode.MethodNotAllowed,
-                    "an API route accepted a media body: ${response.status}",
-                )
-            }
+            // An upload is a PUT to storage. The API having no PUT at all is the whole claim, and
+            // this reads it off the routing table rather than off four paths somebody thought of.
+            assertEquals(emptyList<String>(), routes.filter { it.startsWith("PUT ") })
+
+            // The rest of the surface is the documented one. A new route that takes a body has to
+            // be added here, which is the moment to ask whether it takes media.
+            assertEquals(
+                setOf(
+                    "GET /api/health",
+                    "POST /api/auth/magic-link",
+                    "GET /api/auth/magic-link/callback",
+                    "GET /api/auth/github",
+                    "GET /api/auth/github/callback",
+                    "POST /api/auth/logout",
+                    "GET /api/me",
+                    "GET /api/account/export",
+                    "DELETE /api/account",
+                    "GET /api/albums",
+                    "POST /api/albums",
+                    "GET /api/albums/{id}",
+                    "PATCH /api/albums/{id}",
+                    "DELETE /api/albums/{id}",
+                    "GET /api/albums/{id}/status",
+                    "POST /api/albums/{id}/upload-intent",
+                    "POST /api/albums/{id}/uploads/complete",
+                    "PATCH /api/albums/{id}/items/reorder",
+                    "PATCH /api/albums/{id}/items/{itemId}",
+                    "DELETE /api/albums/{id}/items/{itemId}",
+                ),
+                routes,
+            )
         }
 
     @Test
