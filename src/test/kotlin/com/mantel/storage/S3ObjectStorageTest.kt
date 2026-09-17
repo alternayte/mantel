@@ -2,6 +2,7 @@ package com.mantel.storage
 
 import com.mantel.kernel.StorageConfig
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 import org.testcontainers.containers.MinIOContainer
 import org.testcontainers.junit.jupiter.Container
@@ -17,6 +18,10 @@ import software.amazon.awssdk.services.s3.model.CreateBucketRequest
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
 
 /**
  * Account deletion promises the bytes go, and the promise is only worth what the real storage does.
@@ -58,10 +63,40 @@ class S3ObjectStorageTest {
             .build()
 
     @Test
+    fun `a presigned PUT accepts the declared length and refuses any other`() {
+        val config = config()
+        val s3 = client(config)
+        runCatching { s3.createBucket(CreateBucketRequest.builder().bucket(config.bucket).build()) }
+
+        val key = "accounts/33333333-3333-3333-3333-333333333333/albums/a/i/original.jpg"
+        val url = S3ObjectStorage(config).use { it.presignPut(key, "image/jpeg", 5, Duration.ofMinutes(10)) }
+        val http = HttpClient.newHttpClient()
+
+        fun put(
+            body: String,
+            contentType: String = "image/jpeg",
+        ): Int =
+            http.send(
+                HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", contentType)
+                    .PUT(HttpRequest.BodyPublishers.ofString(body))
+                    .build(),
+                HttpResponse.BodyHandlers.ofString(),
+            ).statusCode()
+
+        // Six bytes against a URL signed for five: storage refuses it, not the client's conscience.
+        assertNotEquals(200, put("123456"))
+        assertNotEquals(200, put("12345", contentType = "application/pdf"))
+        assertEquals(200, put("12345"))
+        assertEquals(5L, S3ObjectStorage(config).use { it.sizeOf(key) })
+    }
+
+    @Test
     fun `deleting a prefix removes every object under it and nothing else`() {
         val config = config()
         val s3 = client(config)
-        s3.createBucket(CreateBucketRequest.builder().bucket(config.bucket).build())
+        // One container serves the whole class, so the bucket may already be there.
+        runCatching { s3.createBucket(CreateBucketRequest.builder().bucket(config.bucket).build()) }
 
         val mine = "accounts/11111111-1111-1111-1111-111111111111/"
         val theirs = "accounts/22222222-2222-2222-2222-222222222222/"
@@ -75,11 +110,13 @@ class S3ObjectStorageTest {
 
         S3ObjectStorage(config).use { it.deletePrefix(mine) }
 
-        val remaining =
-            s3.listObjectsV2(ListObjectsV2Request.builder().bucket(config.bucket).build())
+        fun keysUnder(prefix: String) =
+            s3.listObjectsV2(ListObjectsV2Request.builder().bucket(config.bucket).prefix(prefix).build())
                 .contents()
                 .map { it.key() }
                 .sorted()
-        assertEquals(List(2) { "${theirs}media/$it/original.jpg" }.sorted(), remaining)
+
+        assertEquals(emptyList<String>(), keysUnder(mine))
+        assertEquals(List(2) { "${theirs}media/$it/original.jpg" }.sorted(), keysUnder(theirs))
     }
 }

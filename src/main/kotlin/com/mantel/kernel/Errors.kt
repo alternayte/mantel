@@ -10,6 +10,7 @@ enum class ErrorCode(val status: Int) {
     FORBIDDEN(403),
     VALIDATION_FAILED(422),
     CONFLICT(409),
+    QUOTA_EXCEEDED(413),
     RATE_LIMITED(429),
     INTERNAL(500),
     ;

@@ -16,6 +16,9 @@ interface ObjectStorage {
         expiresIn: Duration,
     ): String
 
+    /** The object's size, or null when it is not there. Used to confirm an upload actually arrived. */
+    fun sizeOf(key: String): Long?
+
     fun delete(keys: List<String>)
 
     /** Every object under a prefix. Account deletion needs this before any row lists the keys. */

@@ -67,15 +67,23 @@ class RecordingMailer : Mailer {
 }
 
 class RecordingStorage : ObjectStorage {
+    data class Presign(val key: String, val contentType: String, val contentLength: Long)
+
     val objects = mutableMapOf<String, String>()
     val deletedPrefixes = mutableListOf<String>()
+    val presigns = mutableListOf<Presign>()
 
     override fun presignPut(
         key: String,
         contentType: String,
         contentLength: Long,
         expiresIn: Duration,
-    ) = "https://storage.test/$key"
+    ): String {
+        presigns += Presign(key, contentType, contentLength)
+        return "https://storage.test/$key?signature=test&length=$contentLength"
+    }
+
+    override fun sizeOf(key: String): Long? = objects[key]?.length?.toLong()
 
     override fun delete(keys: List<String>) {
         keys.forEach { objects.remove(it) }

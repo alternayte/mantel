@@ -3,11 +3,22 @@ package com.mantel.http
 import com.mantel.features.account.deleteAccount
 import com.mantel.features.account.exportAccount
 import com.mantel.features.account.getMe
+import com.mantel.features.album.archiveAlbum
+import com.mantel.features.album.createAlbum
+import com.mantel.features.album.getAlbum
+import com.mantel.features.album.getAlbumProgress
+import com.mantel.features.album.listAlbums
+import com.mantel.features.album.updateAlbum
 import com.mantel.features.auth.completeGitHubOAuth
 import com.mantel.features.auth.consumeMagicLink
 import com.mantel.features.auth.requestMagicLink
 import com.mantel.features.auth.revokeSession
 import com.mantel.features.auth.startGitHubOAuth
+import com.mantel.features.media.completeUploads
+import com.mantel.features.media.createUploadIntent
+import com.mantel.features.media.deleteItem
+import com.mantel.features.media.reorderItems
+import com.mantel.features.media.setCaption
 import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
@@ -28,6 +39,7 @@ import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.post
 import io.ktor.server.routing.routing
 import kotlinx.serialization.Serializable
@@ -93,6 +105,20 @@ fun Application.module(services: Services) {
         }
 
         get("/api/me") { getMe(call) }
+
+        get("/api/albums") { listAlbums(call) }
+        post("/api/albums") { createAlbum(call) }
+        get("/api/albums/{id}") { getAlbum(call) }
+        patch("/api/albums/{id}") { updateAlbum(call) }
+        delete("/api/albums/{id}") { archiveAlbum(call) }
+        get("/api/albums/{id}/status") { getAlbumProgress(call) }
+
+        post("/api/albums/{id}/upload-intent") { createUploadIntent(call, services.storage) }
+        post("/api/albums/{id}/uploads/complete") { completeUploads(call, services.storage) }
+        patch("/api/albums/{id}/items/reorder") { reorderItems(call) }
+        patch("/api/albums/{id}/items/{itemId}") { setCaption(call) }
+        delete("/api/albums/{id}/items/{itemId}") { deleteItem(call, services.storage) }
+
         get("/api/account/export") { exportAccount(call) }
         delete("/api/account") { deleteAccount(call, services.storage) }
     }

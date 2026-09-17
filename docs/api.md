@@ -20,6 +20,7 @@ The code set is closed. Adding a code is an API change.
 | `forbidden` | 403 | Signed in, not allowed |
 | `validation_failed` | 422 | The request is wrong, including a spent or expired sign-in link |
 | `conflict` | 409 | The state does not allow this |
+| `quota_exceeded` | 413 | The batch needs more space than the account has left |
 | `rate_limited` | 429 | Too many attempts; wait |
 | `internal` | 500 | A fault on our side |
 
@@ -83,3 +84,124 @@ items join it in the milestones that create them.
 `204`. Deletes the account row, which cascades to sessions and sign-in links, and deletes every
 object under the account's storage prefix. Objects go first, so a failure never leaves storage with
 no row pointing at it. The email address is free to sign up again afterwards.
+
+## Albums
+
+An album is `draft` while it is assembled, `ready` when every item has finished processing,
+`published` while a live share link exists (M5), and `archived` once deleted. Publishing is not a
+separate action: the first live share link publishes the album.
+
+An album belonging to another account is `not_found`, never `forbidden`. A creator learns nothing
+about an album that is not theirs, including whether it exists.
+
+### `GET /api/albums`
+
+The account's albums, newest change first. Archived albums are not listed.
+
+### `POST /api/albums`
+
+```json
+{ "title": "Cornwall", "description": "three days" }
+```
+
+`201` with the album. A title is 1 to 200 characters.
+
+### `GET /api/albums/{id}`
+
+The album and its items in position order.
+
+### `PATCH /api/albums/{id}`
+
+`title`, `description` and `coverItemId`, each optional. The cover must be an item in this album.
+
+### `DELETE /api/albums/{id}`
+
+`204`. Archives the album. The bytes and the quota they hold go when the purge job runs.
+
+### `GET /api/albums/{id}/status`
+
+Per-item processing progress: totals for ready, failed and still coming, with the items themselves.
+The creator polls this while assembling, and the viewer's manifest reads the same rows.
+
+## Upload
+
+Bytes go from the client to object storage and never through this server.
+
+```
+1. POST /api/albums/{id}/upload-intent   declare the batch
+2. PUT to each presigned URL             the client uploads directly
+3. POST /api/albums/{id}/uploads/complete   one call for the whole batch
+```
+
+### `POST /api/albums/{id}/upload-intent`
+
+```json
+{ "files": [ { "filename": "beach.jpg", "contentType": "image/jpeg", "sizeBytes": 2048 } ] }
+```
+
+Quota is checked and the declared bytes are reserved before any URL is issued. A batch that does
+not fit is refused whole, with `quota_exceeded`; the part that would fit is not accepted. At most
+200 files in one batch.
+
+Accepted types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `video/mp4`,
+`video/quicktime`. Anything else is `validation_failed`.
+
+```json
+{
+  "items": [
+    {
+      "itemId": "…",
+      "filename": "beach.jpg",
+      "uploadUrl": "https://storage.example/…",
+      "contentType": "image/jpeg",
+      "sizeBytes": 2048
+    }
+  ],
+  "expiresInSeconds": 3600
+}
+```
+
+Each URL is signed for exactly that length and content type. Uploading anything else is refused by
+the storage provider, so the declared size is enforced rather than trusted.
+
+### `POST /api/albums/{id}/uploads/complete`
+
+```json
+{ "itemIds": ["…", "…"] }
+```
+
+One call for the whole batch. Storage is asked whether each object actually arrived; those that did
+become `uploaded` and enter the processing queue, and the rest come back under `missing` and stay
+`pending_upload`.
+
+```json
+{ "uploaded": ["…"], "missing": ["…"] }
+```
+
+### `PATCH /api/albums/{id}/items/reorder`
+
+```json
+{ "itemIds": ["…", "…", "…"] }
+```
+
+Names every item in the album exactly once, in the new order. `204`.
+
+### `PATCH /api/albums/{id}/items/{itemId}`
+
+```json
+{ "caption": "low tide" }
+```
+
+`204`. An empty caption clears it. At most 500 characters.
+
+### `DELETE /api/albums/{id}/items/{itemId}`
+
+`204`. Deletes the item's objects, returns its bytes to the account, and closes the gap in
+positions.
+
+## Item states
+
+`pending_upload → uploaded → processing → ready | failed`
+
+A failed item can be retried (M3). The transition is a pure function; illegal transitions are a
+programming error, not a request error.
