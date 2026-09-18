@@ -125,6 +125,56 @@ body {
 .control--prev { left: 14px; top: 50%; transform: translateY(-50%); }
 .control--next { right: 14px; top: 50%; transform: translateY(-50%); }
 
+/* One control, at the end of the photographs, in the album's own voice. */
+.download {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 2rem var(--space-page-x) 4rem;
+  text-align: center;
+}
+
+.download__button {
+  background: transparent;
+  border: 1px solid var(--colour-line);
+  border-radius: var(--radius-card);
+  color: var(--colour-muted);
+  font: inherit;
+  font-size: var(--type-caption);
+  letter-spacing: 0.04em;
+  padding: 0.6rem 1.1rem;
+  cursor: pointer;
+  transition: color var(--motion-fast) var(--motion-ease), border-color var(--motion-fast) var(--motion-ease);
+}
+
+.download__button:hover:not(:disabled) { color: var(--colour-ink); border-color: var(--colour-muted); }
+.download__button:disabled { cursor: default; opacity: 0.7; }
+
+.download__option input {
+  /* The browser's blue belongs to no part of this design (DESIGN.md). */
+  accent-color: var(--colour-muted);
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.download__option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--colour-muted);
+  font-size: var(--type-caption);
+  cursor: pointer;
+}
+
+.download__warning {
+  margin: 0;
+  max-width: 46ch;
+  color: var(--colour-muted);
+  font-size: var(--type-caption);
+  line-height: 1.5;
+}
+
 /* The states that are usually forgotten. */
 .notice {
   min-height: 70vh;

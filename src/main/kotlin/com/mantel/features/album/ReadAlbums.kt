@@ -28,6 +28,7 @@ data class ItemView(
     val height: Int? = null,
     val durationMs: Int? = null,
     val lastError: String? = null,
+    val filename: String? = null,
     /** The creator's own thumbnail. Signed by the hour, like the viewer's (SDD.md 3.2). */
     val thumbUrl: String? = null,
 )
@@ -72,6 +73,7 @@ fun ResultRow.toItemView(storage: ObjectStorage? = null) =
         width = this[MediaItems.width],
         height = this[MediaItems.height],
         durationMs = this[MediaItems.durationMs],
+        filename = this[MediaItems.filename],
         lastError = this[MediaItems.lastError],
         thumbUrl =
             this[MediaItems.thumbKey]

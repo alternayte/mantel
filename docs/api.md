@@ -332,6 +332,24 @@ statement that this browser answered the PIN and nothing else. Ten attempts per 
 hour, then `rate_limited` — including for the right PIN, because a link under attack is not one to
 open faster.
 
+### `GET /api/share/{token}/download`
+
+`?originals=true` for the files as they were uploaded; without it, display quality.
+
+The bundle is built by the worker into object storage, so this endpoint answers one of two ways:
+
+- `202` with `{"status":"building","itemCount":6,"message":"…"}` — it is being packed. Ask again.
+- `302` to a signed URL for the finished ZIP.
+
+A fingerprint of the album decides whether a stored bundle is still the album: change a caption,
+reorder, add or remove a photograph, and the next download packs a new one rather than handing over
+yesterday's. `conflict` when nothing has finished processing yet. A PIN'd album needs its PIN first,
+and a revoked link is `not_found`, exactly as the manifest is.
+
+The ZIP holds `photos/` named as the creator named them and numbered in album order, an `index.html`
+that shows them with no script, no web font and nothing to fetch, a `captions.txt` when there are
+captions, and — for originals only — `ABOUT-THESE-FILES.txt` saying what originals carry.
+
 ### `GET /a/{token}`
 
 The album page. Ktor writes the title and `og:*` tags into the HTML shell and serves the same SPA

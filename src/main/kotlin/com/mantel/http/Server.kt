@@ -26,8 +26,13 @@ import com.mantel.features.media.reportFailure
 import com.mantel.features.media.reportHeartbeat
 import com.mantel.features.media.retryItem
 import com.mantel.features.media.setCaption
+import com.mantel.features.share.claimBundles
 import com.mantel.features.share.createShareLink
+import com.mantel.features.share.heartbeatBundle
 import com.mantel.features.share.listShareLinks
+import com.mantel.features.share.reportBundleBuilt
+import com.mantel.features.share.reportBundleFailure
+import com.mantel.features.share.requestBundle
 import com.mantel.features.share.revokeShareLink
 import com.mantel.features.viewer.getManifest
 import com.mantel.features.viewer.serveOgShell
@@ -160,6 +165,9 @@ fun Application.module(services: Services) {
         post("/api/share/{token}/unlock") {
             unlock(call, services.config, services.pinLimiter, services.clock)
         }
+        get("/api/share/{token}/download") {
+            requestBundle(call, services.config, services.storage, services.clock)
+        }
         get("/a/{token}") { serveOgShell(call, services.config, services.assets, services.clock) }
         // The preview image a PIN'd album shows in place of its cover. It ships in the jar: it is
         // not media, and it must load for a crawler with no credentials.
@@ -184,6 +192,11 @@ fun Application.module(services: Services) {
         }
         post("/api/worker/items/{itemId}/failure") { reportFailure(call, services.config, services.clock) }
         post("/api/worker/items/{itemId}/heartbeat") { reportHeartbeat(call, services.config, services.clock) }
+
+        post("/api/worker/bundles/claim") { claimBundles(call, services.config, services.clock) }
+        post("/api/worker/bundles/{bundleId}/built") { reportBundleBuilt(call, services.config, services.clock) }
+        post("/api/worker/bundles/{bundleId}/failure") { reportBundleFailure(call, services.config, services.clock) }
+        post("/api/worker/bundles/{bundleId}/heartbeat") { heartbeatBundle(call, services.config, services.clock) }
 
         get("/api/account/export") { exportAccount(call) }
         delete("/api/account") { deleteAccount(call, services.storage) }

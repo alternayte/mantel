@@ -2,6 +2,7 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Album } from './Album'
 import { Lightbox } from './Lightbox'
+import { Download } from './Download'
 import { Broken, Empty, Gone, StillProcessing } from './Notices'
 import { PinScreen } from './PinScreen'
 import { type Outcome, isReady, loadManifest, tokenFromLocation } from './manifest'
@@ -36,6 +37,7 @@ function Viewer() {
         <>
           <Album manifest={manifest} onOpen={setOpen} />
           {waiting > 0 && <StillProcessing ready={manifest.readyCount} total={manifest.itemCount} />}
+          {manifest.readyCount > 0 && <Download token={token} />}
         </>
       )}
       {open !== null && (

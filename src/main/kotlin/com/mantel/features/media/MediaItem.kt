@@ -51,6 +51,7 @@ object MediaItems : Table("media_item") {
         reference("album_id", Albums.id, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.NO_ACTION)
     val position = integer("position")
     val kind = text("kind").transform({ MediaKind.fromWire(it) }, { it.wire })
+    val filename = text("filename").nullable()
     val uploadId = text("upload_id").nullable()
     val originalKey = text("original_key")
     val thumbKey = text("thumb_key").nullable()

@@ -147,6 +147,7 @@ suspend fun createUploadIntent(
                         it[MediaItems.albumId] = albumId
                         it[position] = startPosition + index
                         it[MediaItems.kind] = kind
+                        it[MediaItems.filename] = file.filename.take(200)
                         it[originalKey] = key
                         it[byteSize] = size
                         it[status] = ItemState.PENDING_UPLOAD

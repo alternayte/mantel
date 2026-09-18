@@ -80,8 +80,17 @@ the source, and every one is styled from the tokens above rather than from a lib
 The creator surface is one shade lighter than the viewer: the viewer is a gallery at night, the
 creator is a desk with a lamp on it. Both read the same tokens.
 
+## The one control the viewer has
+
+Run A froze a grid with no interface in it, and M8 added the download. It sits *after* the
+photographs rather than in the grid, in the album's own type at the album's own weight, because a
+recipient looks for it once and never again. The originals toggle carries its warning beside it
+rather than behind a link: an original photograph usually names the place it was taken, and a
+recipient about to forward the folder should be told before they do (SDD.md 4.5).
+
+That is the whole interface. Anything else added to the viewer is a change to this document.
+
 ## What is not in the viewer
 
-No header, no footer, no navigation, no logo, no share button, no download button in v1's grid, no
-view count, no avatar, no comment, no theme switch. Dark mode is not a setting because the viewer
-has one mode.
+No header, no footer, no navigation, no logo, no share button, no view count, no avatar, no
+comment, no theme switch. Dark mode is not a setting because the viewer has one mode.

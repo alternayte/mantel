@@ -59,6 +59,31 @@ private data class DerivativesWritten(
 @Serializable
 private data class WorkFailed(val error: String)
 
+@Serializable
+data class BundleEntry(
+    val filename: String,
+    val key: String,
+    val kind: String,
+    val caption: String? = null,
+    val width: Int? = null,
+    val height: Int? = null,
+)
+
+@Serializable
+data class ClaimedBundle(
+    val bundleId: String,
+    val variant: String,
+    val albumTitle: String,
+    val albumDescription: String? = null,
+    val targetKey: String,
+    val includesOriginals: Boolean,
+    val entries: List<BundleEntry>,
+    val heartbeatSeconds: Long,
+)
+
+@Serializable
+private data class BundleBuilt(val key: String, val byteSize: Long)
+
 private val log = LoggerFactory.getLogger("com.mantel.worker")
 
 /**
@@ -118,7 +143,74 @@ class Worker(
                     report(item, "/failure", WorkFailed(failure.message ?: failure::class.simpleName.orEmpty()))
                 }
         }
-        return claimed.size
+        return claimed.size + packBundles()
+    }
+
+    /**
+     * Album bundles are the same shape of work: claim, do something slow, report. They are claimed
+     * after media, because a photograph nobody has rendered yet is a photograph missing from every
+     * bundle built until it is.
+     */
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    suspend fun packBundles(): Int {
+        val response =
+            http.post("${config.publicBaseUrl}/api/worker/bundles/claim") {
+                authenticate()
+                contentType(ContentType.Application.Json)
+                setBody(ClaimRequest(1))
+            }
+        if (!response.status.isSuccess()) {
+            error("the API refused the bundle claim (${response.status}): ${response.bodyAsText()}")
+        }
+        val bundles: List<ClaimedBundle> = response.body()
+
+        bundles.forEach { bundle ->
+            val scratch = Files.createTempDirectory("mantel-bundle-${bundle.bundleId}")
+            try {
+                val beat =
+                    kotlinx.coroutines.CoroutineScope(kotlin.coroutines.coroutineContext).launch {
+                        while (true) {
+                            delay(bundle.heartbeatSeconds.coerceAtLeast(1) * 1000)
+                            runCatching {
+                                http.post(
+                                    "${config.publicBaseUrl}/api/worker/bundles/${bundle.bundleId}/heartbeat",
+                                ) { authenticate() }
+                            }
+                        }
+                    }
+                try {
+                    val zip =
+                        BundleBuilder(storage).build(
+                            into = scratch,
+                            title = bundle.albumTitle,
+                            description = bundle.albumDescription,
+                            includesOriginals = bundle.includesOriginals,
+                            items =
+                                bundle.entries.map {
+                                    BundleItem(it.filename, it.key, it.kind, it.caption, it.width, it.height)
+                                },
+                        )
+                    storage.upload(bundle.targetKey, zip, "application/zip")
+                    http.post("${config.publicBaseUrl}/api/worker/bundles/${bundle.bundleId}/built") {
+                        authenticate()
+                        contentType(ContentType.Application.Json)
+                        setBody(BundleBuilt(bundle.targetKey, Files.size(zip)))
+                    }
+                } finally {
+                    beat.cancel()
+                }
+            } catch (failure: Exception) {
+                log.warn("bundle {} failed: {}", bundle.bundleId, failure.message)
+                http.post("${config.publicBaseUrl}/api/worker/bundles/${bundle.bundleId}/failure") {
+                    authenticate()
+                    contentType(ContentType.Application.Json)
+                    setBody(WorkFailed(failure.message ?: failure::class.simpleName.orEmpty()))
+                }
+            } finally {
+                scratch.deleteRecursively()
+            }
+        }
+        return bundles.size
     }
 
     /**
