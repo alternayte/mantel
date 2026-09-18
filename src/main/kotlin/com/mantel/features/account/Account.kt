@@ -33,4 +33,9 @@ object Accounts : Table("account") {
 
 fun ResultRow.quota() = Quota(limit = this[Accounts.storageQuotaBytes], used = this[Accounts.storageUsedBytes])
 
-fun storagePrefixFor(accountId: AccountId): String = "accounts/$accountId/"
+/**
+ * Media lives under its own item id and nothing else. An earlier layout put the account and album
+ * ids in the key, which then travelled inside every presigned URL in a public manifest — exactly
+ * what SDD.md 6.2 forbids, and a way for a viewer to tell that two albums share an owner.
+ */
+fun mediaPrefixFor(itemId: com.mantel.features.media.ItemId): String = "media/$itemId/"

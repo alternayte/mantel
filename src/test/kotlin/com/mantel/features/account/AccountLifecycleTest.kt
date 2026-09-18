@@ -1,6 +1,8 @@
 package com.mantel.features.account
 
 import com.mantel.support.browser
+import com.mantel.support.createAlbum
+import com.mantel.support.uploadIntent
 import com.mantel.support.withApp
 import io.ktor.client.call.body
 import io.ktor.client.request.delete
@@ -11,6 +13,7 @@ import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
+import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -49,15 +52,24 @@ class AccountLifecycleTest {
             val me = browser.get("/api/me").body<Me>()
             assertEquals("nate@example.com", me.email)
 
-            // Objects the account owns, as the worker would have written them.
-            harness.storage.objects["accounts/other/keep.jpg"] = "other account".toByteArray()
-            val prefixBefore = harness.storage.deletedPrefixes.size
+            // One album with one uploaded item, and an object belonging to somebody else.
+            val album = browser.createAlbum().body<com.mantel.features.album.AlbumSummary>()
+            val intent =
+                Json { ignoreUnknownKeys = true }.decodeFromString<com.mantel.features.media.UploadIntentResponse>(
+                    browser.uploadIntent(
+                        album.id,
+                        """{"files":[{"filename":"a.jpg","contentType":"image/jpeg","sizeBytes":10}]}""",
+                    ).bodyAsText(),
+                )
+            val mine = harness.storage.presigns.single().key
+            harness.storage.objects[mine] = "mine".toByteArray()
+            harness.storage.objects["media/somebody-else/original.jpg"] = "theirs".toByteArray()
+            assertEquals(1, intent.items.size)
 
             assertEquals(HttpStatusCode.NoContent, browser.delete("/api/account").status)
 
-            assertEquals(prefixBefore + 1, harness.storage.deletedPrefixes.size)
-            assertTrue(harness.storage.deletedPrefixes.last().startsWith("accounts/"))
-            assertTrue(harness.storage.objects.containsKey("accounts/other/keep.jpg"))
+            assertTrue(harness.storage.objects[mine] == null, "the account's object survived")
+            assertTrue(harness.storage.objects.containsKey("media/somebody-else/original.jpg"))
             assertEquals(HttpStatusCode.Unauthorized, browser.get("/api/me").status)
         }
 

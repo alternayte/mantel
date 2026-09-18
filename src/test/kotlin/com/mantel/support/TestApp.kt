@@ -27,7 +27,9 @@ import io.ktor.server.application.Application
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.jetbrains.exposed.sql.update
 import org.testcontainers.containers.PostgreSQLContainer
 import java.time.Duration
 
@@ -79,6 +81,8 @@ class RecordingStorage : ObjectStorage {
     val uploaded = mutableListOf<Pair<String, String>>()
     val aborted = mutableListOf<String>()
     var lifecycleDays: Int? = null
+    val copies = mutableListOf<Pair<String, String>>()
+    val publicPrefixes = mutableListOf<String>()
 
     override fun presignPut(
         key: String,
@@ -95,6 +99,23 @@ class RecordingStorage : ObjectStorage {
     // Multipart in memory: enough for the tests that only need an upload id to exist. The real
     // behaviour is proved against MinIO in S3ObjectStorageTest and ResumableUploadTest.
     private val multipart = mutableMapOf<String, MutableList<com.mantel.storage.UploadedPart>>()
+
+    override fun presignGetForThisHour(
+        key: String,
+        validFor: Duration,
+    ): String = "https://storage.test/$key?signed-for=hour"
+
+    override fun copy(
+        fromKey: String,
+        toKey: String,
+    ) {
+        objects[toKey] = objects[fromKey] ?: error("no object at $fromKey")
+        copies += fromKey to toKey
+    }
+
+    override fun makePrefixPublic(prefix: String) {
+        publicPrefixes += prefix
+    }
 
     override fun ensureIncompleteUploadsExpire(afterDays: Int) {
         lifecycleDays = afterDays
@@ -207,6 +228,7 @@ fun testConfig(
                 multipartThreshold = Bytes(64L * 1024 * 1024),
                 partSize = Bytes(16L * 1024 * 1024),
             ),
+    cookieSecret = "test-cookie-secret",
     smtp = null,
     github = github,
     worker =
@@ -226,6 +248,43 @@ class Harness(
 ) {
     /** The running application, for tests that ask the routing table what exists. */
     lateinit var application: Application
+
+    /**
+     * Marks an item ready as the worker would, without running libvips. Tests about sharing care
+     * that an item is ready, not how it got there.
+     */
+    fun renderItem(
+        itemId: String,
+        originalKey: String,
+    ) {
+        val prefix = originalKey.substringBeforeLast('/')
+        listOf("thumb.webp", "display.webp", "display.avif").forEach {
+            storage.objects["$prefix/$it"] = "derivative".toByteArray()
+        }
+        org.jetbrains.exposed.sql.transactions.transaction {
+            com.mantel.features.media.MediaItems.update(
+                { com.mantel.features.media.MediaItems.id eq com.mantel.features.media.ItemId(java.util.UUID.fromString(itemId)) },
+            ) {
+                it[com.mantel.features.media.MediaItems.status] = com.mantel.features.media.ItemState.READY
+                it[com.mantel.features.media.MediaItems.thumbKey] = "$prefix/thumb.webp"
+                it[com.mantel.features.media.MediaItems.displayWebpKey] = "$prefix/display.webp"
+                it[com.mantel.features.media.MediaItems.displayAvifKey] = "$prefix/display.avif"
+                it[com.mantel.features.media.MediaItems.width] = 2400
+                it[com.mantel.features.media.MediaItems.height] = 1600
+            }
+            // The API does this when the worker reports, and an album's status follows its items.
+            com.mantel.features.album.settleAlbum(
+                com.mantel.features.media.MediaItems
+                    .selectAll()
+                    .where {
+                        com.mantel.features.media.MediaItems.id eq
+                            com.mantel.features.media.ItemId(java.util.UUID.fromString(itemId))
+                    }
+                    .single()[com.mantel.features.media.MediaItems.albumId],
+                java.time.OffsetDateTime.now(),
+            )
+        }
+    }
 }
 
 /**

@@ -25,6 +25,12 @@ import com.mantel.features.media.reportFailure
 import com.mantel.features.media.reportHeartbeat
 import com.mantel.features.media.retryItem
 import com.mantel.features.media.setCaption
+import com.mantel.features.share.createShareLink
+import com.mantel.features.share.listShareLinks
+import com.mantel.features.share.revokeShareLink
+import com.mantel.features.viewer.getManifest
+import com.mantel.features.viewer.serveOgShell
+import com.mantel.features.viewer.unlock
 import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
@@ -33,6 +39,7 @@ import com.mantel.kernel.Mailer
 import com.mantel.kernel.RateLimiter
 import com.mantel.storage.ObjectStorage
 import io.ktor.client.HttpClient
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
@@ -44,6 +51,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.defaultheaders.DefaultHeaders
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
@@ -70,6 +78,9 @@ class Services(
     val httpClient: HttpClient,
     // Five links an hour for one address: enough for a mistyped inbox, not enough to use as a mailer.
     val magicLinkLimiter: RateLimiter = RateLimiter(capacity = 5, refillPeriod = Duration.ofHours(1)),
+    // Ten PIN attempts per link per address per hour. A four-digit PIN has ten thousand
+    // possibilities, so this is the difference between guessable and not.
+    val pinLimiter: RateLimiter = RateLimiter(capacity = 10, refillPeriod = Duration.ofHours(1)),
 )
 
 fun startServer(services: Services) {
@@ -132,6 +143,25 @@ fun Application.module(services: Services) {
         patch("/api/albums/{id}/items/{itemId}") { setCaption(call) }
         delete("/api/albums/{id}/items/{itemId}") { deleteItem(call, services.storage) }
         post("/api/albums/{id}/items/{itemId}/retry") { retryItem(call, services.clock) }
+
+        post("/api/albums/{id}/share-links") {
+            createShareLink(call, services.config, services.storage, services.clock)
+        }
+        get("/api/albums/{id}/share-links") { listShareLinks(call, services.config, services.clock) }
+        delete("/api/share-links/{id}") { revokeShareLink(call, services.storage, services.clock) }
+
+        // Public: a token and nothing else. No session, and no cookie unless a PIN is unlocked.
+        get("/api/share/{token}") { getManifest(call, services.config, services.storage, services.clock) }
+        post("/api/share/{token}/unlock") {
+            unlock(call, services.config, services.pinLimiter, services.clock)
+        }
+        get("/a/{token}") { serveOgShell(call, services.config, services.clock) }
+        // The preview image a PIN'd album shows in place of its cover. It ships in the jar: it is
+        // not media, and it must load for a crawler with no credentials.
+        get("/og-placeholder.png") {
+            val bytes = Services::class.java.getResourceAsStream("/static/og-placeholder.png")!!.readBytes()
+            call.respondBytes(bytes, ContentType.Image.PNG)
+        }
 
         // The worker has no database credentials, so it asks for work and reports outcomes here.
         post("/api/worker/claim") { claimWork(call, services.config, services.clock) }

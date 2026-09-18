@@ -3,6 +3,10 @@ package com.mantel.storage
 import com.mantel.kernel.StorageConfig
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
+import software.amazon.awssdk.auth.signer.AwsS3V4Signer
+import software.amazon.awssdk.auth.signer.params.Aws4PresignerParams
+import software.amazon.awssdk.http.SdkHttpFullRequest
+import software.amazon.awssdk.http.SdkHttpMethod
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.S3Configuration
@@ -12,6 +16,7 @@ import software.amazon.awssdk.services.s3.model.BucketLifecycleConfiguration
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest
 import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload
 import software.amazon.awssdk.services.s3.model.CompletedPart
+import software.amazon.awssdk.services.s3.model.CopyObjectRequest
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
 import software.amazon.awssdk.services.s3.model.ExpirationStatus
@@ -24,6 +29,7 @@ import software.amazon.awssdk.services.s3.model.ListPartsRequest
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException
 import software.amazon.awssdk.services.s3.model.NoSuchUploadException
 import software.amazon.awssdk.services.s3.model.PutBucketLifecycleConfigurationRequest
+import software.amazon.awssdk.services.s3.model.PutBucketPolicyRequest
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
 import software.amazon.awssdk.services.s3.model.S3Exception
 import software.amazon.awssdk.services.s3.model.UploadPartRequest
@@ -34,12 +40,16 @@ import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.time.Clock
 import java.time.Duration
+import java.time.ZoneOffset
+import java.time.temporal.ChronoUnit
 
 private val log = org.slf4j.LoggerFactory.getLogger("com.mantel.storage")
 
 class S3ObjectStorage(
     private val config: StorageConfig,
+    private val clock: com.mantel.kernel.Clock = com.mantel.kernel.Clock.system,
 ) : ObjectStorage, AutoCloseable {
     private val credentials =
         StaticCredentialsProvider.create(
@@ -195,6 +205,65 @@ class S3ObjectStorage(
             )
         } catch (_: NoSuchUploadException) {
             // Already gone, by lifecycle rule or a previous abort.
+        }
+    }
+
+    override fun presignGetForThisHour(
+        key: String,
+        validFor: Duration,
+    ): String {
+        // The signature is taken at the top of the hour rather than now, so the URL is the same for
+        // every viewer until that hour ends. Signing with the current instant would give each
+        // viewer a unique URL and a CDN miss.
+        val hourStart = clock.now().truncatedTo(ChronoUnit.HOURS)
+        val request =
+            SdkHttpFullRequest.builder()
+                .method(SdkHttpMethod.GET)
+                .uri(URI.create("${config.publicEndpoint ?: config.endpoint}/${config.bucket}/$key"))
+                .build()
+        val params =
+            Aws4PresignerParams.builder()
+                .awsCredentials(credentials.resolveCredentials())
+                .signingName("s3")
+                .signingRegion(Region.of(config.region))
+                .signingClockOverride(Clock.fixed(hourStart, ZoneOffset.UTC))
+                // Long enough to outlive the hour it was signed in, so a URL handed out at 59
+                // minutes past still works while the viewer is reading the album.
+                .expirationTime(hourStart.plus(validFor))
+                .build()
+        return AwsS3V4Signer.create().presign(request, params).getUri().toString()
+    }
+
+    override fun copy(
+        fromKey: String,
+        toKey: String,
+    ) {
+        client.copyObject(
+            CopyObjectRequest.builder()
+                .sourceBucket(config.bucket)
+                .sourceKey(fromKey)
+                .destinationBucket(config.bucket)
+                .destinationKey(toKey)
+                .build(),
+        )
+    }
+
+    override fun makePrefixPublic(prefix: String) {
+        try {
+            val policy =
+                """
+                {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":"*",
+                "Action":["s3:GetObject"],"Resource":["arn:aws:s3:::${config.bucket}/$prefix*"]}]}
+                """.trimIndent().replace("\n", "")
+            client.putBucketPolicy(
+                PutBucketPolicyRequest.builder().bucket(config.bucket).policy(policy).build(),
+            )
+        } catch (refusal: S3Exception) {
+            log.warn(
+                "storage refused a public read policy for {} ({}). Link previews will not load.",
+                prefix,
+                refusal.awsErrorDetails()?.errorCode(),
+            )
         }
     }
 

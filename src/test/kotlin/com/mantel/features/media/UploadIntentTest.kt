@@ -89,6 +89,13 @@ class UploadIntentTest {
                     "POST /api/worker/items/{itemId}/derivatives",
                     "POST /api/worker/items/{itemId}/failure",
                     "POST /api/worker/items/{itemId}/heartbeat",
+                    "POST /api/albums/{id}/share-links",
+                    "GET /api/albums/{id}/share-links",
+                    "DELETE /api/share-links/{id}",
+                    "GET /api/share/{token}",
+                    "POST /api/share/{token}/unlock",
+                    "GET /a/{token}",
+                    "GET /og-placeholder.png",
                 ),
                 routes,
             )
@@ -110,8 +117,13 @@ class UploadIntentTest {
             assertEquals(2, harness.storage.presigns.size)
             assertEquals(listOf(2048L, 9000L), harness.storage.presigns.map { it.contentLength })
             assertEquals(listOf("image/jpeg", "video/mp4"), harness.storage.presigns.map { it.contentType })
-            // Keys live under the account prefix, so deleting the account takes them with it.
-            assertTrue(harness.storage.presigns.all { it.key.startsWith("accounts/") }, "${harness.storage.presigns}")
+            // A key names the item and nothing else: it travels inside every presigned URL in a
+            // public manifest, so an account id or album id in it would leak there (SDD.md 6.2).
+            assertTrue(harness.storage.presigns.all { it.key.startsWith("media/") }, "${harness.storage.presigns}")
+            assertTrue(
+                harness.storage.presigns.none { it.key.contains("account") || it.key.contains("album") },
+                "${harness.storage.presigns}",
+            )
         }
 
     @Test

@@ -7,6 +7,7 @@ package com.mantel.kernel
 enum class ErrorCode(val status: Int) {
     NOT_FOUND(404),
     UNAUTHENTICATED(401),
+    PIN_REQUIRED(401),
     FORBIDDEN(403),
     VALIDATION_FAILED(422),
     CONFLICT(409),

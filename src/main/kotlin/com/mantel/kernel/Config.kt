@@ -10,6 +10,7 @@ data class Config(
     val port: Int,
     val publicBaseUrl: String,
     val defaultQuota: Bytes,
+    val cookieSecret: String,
     val database: DatabaseConfig,
     val storage: StorageConfig,
     val smtp: SmtpConfig?,
@@ -23,6 +24,9 @@ data class Config(
                 publicBaseUrl = env("MANTEL_PUBLIC_BASE_URL") ?: "http://localhost:8080",
                 // One number, no tiers. SDD.md 14.1 leaves pricing open; this is not it.
                 defaultQuota = Bytes(env("MANTEL_DEFAULT_QUOTA_BYTES")?.toLong() ?: (10L * 1024 * 1024 * 1024)),
+                // Signs the PIN unlock cookie. Unset means a fresh one each start, which only costs
+                // viewers of PIN'd albums an extra unlock after a restart.
+                cookieSecret = env("MANTEL_COOKIE_SECRET") ?: Ids.token(32),
                 database =
                     DatabaseConfig(
                         url = env("MANTEL_DB_URL") ?: "jdbc:postgresql://localhost:5432/mantel",

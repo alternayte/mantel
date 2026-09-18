@@ -23,6 +23,8 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
+import java.time.Instant
+import java.time.temporal.ChronoUnit
 
 /**
  * Account deletion promises the bytes go, and the promise is only worth what the real storage does.
@@ -117,6 +119,43 @@ class S3ObjectStorageTest {
             // Aborting twice is not an error: the lifecycle rule may have gone first.
             storage.abortMultipartUpload(key, uploadId)
         }
+    }
+
+    @Test
+    fun `every viewer in the same hour is handed the same URL, and it works`() {
+        val config = config()
+        val s3 = client(config)
+        runCatching { s3.createBucket(CreateBucketRequest.builder().bucket(config.bucket).build()) }
+
+        val key = "accounts/55555555-5555-5555-5555-555555555555/albums/a/i/display.webp"
+        s3.putObject(
+            PutObjectRequest.builder().bucket(config.bucket).key(key).build(),
+            RequestBody.fromString("pretend this is a photo"),
+        )
+
+        // Inside the hour that is running now: a URL signed for a past hour is genuinely expired.
+        val thisHour = Instant.now().truncatedTo(ChronoUnit.HOURS)
+        val early = com.mantel.kernel.Clock { thisHour.plusSeconds(1) }
+        val late = com.mantel.kernel.Clock { Instant.now() }
+        val previousHour = com.mantel.kernel.Clock { thisHour.minusSeconds(1) }
+
+        val first = S3ObjectStorage(config, early).use { it.presignGetForThisHour(key, Duration.ofHours(6)) }
+        val second = S3ObjectStorage(config, late).use { it.presignGetForThisHour(key, Duration.ofHours(6)) }
+        val other =
+            S3ObjectStorage(config, previousHour).use { it.presignGetForThisHour(key, Duration.ofHours(6)) }
+
+        // Two viewers in the same hour: one cache entry, not two.
+        assertEquals(first, second)
+        assertNotEquals(first, other, "a different hour must mint a different URL")
+
+        // And the URL actually fetches the object.
+        val response =
+            HttpClient.newHttpClient().send(
+                HttpRequest.newBuilder(URI.create(first)).GET().build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+        assertEquals(200, response.statusCode(), response.body())
+        assertEquals("pretend this is a photo", response.body())
     }
 
     @Test

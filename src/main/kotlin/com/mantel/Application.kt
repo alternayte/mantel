@@ -27,6 +27,9 @@ fun main(args: Array<String>) {
             Schema.connect(dataSource)
             val storage = S3ObjectStorage(config.storage)
             storage.ensureIncompleteUploadsExpire(afterDays = 1)
+            // Link previews are fetched by crawlers with no credentials, so the covers copied here
+            // have to be readable without a signature (SDD.md 4.3).
+            storage.makePrefixPublic(com.mantel.features.share.PUBLIC_PREFIX)
             val httpClient =
                 HttpClient {
                     install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }

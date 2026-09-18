@@ -21,6 +21,7 @@ The code set is closed. Adding a code is an API change.
 | `validation_failed` | 422 | The request is wrong, including a spent or expired sign-in link |
 | `conflict` | 409 | The state does not allow this |
 | `quota_exceeded` | 413 | The batch needs more space than the account has left |
+| `pin_required` | 401 | The album is behind a PIN and this browser has not answered it |
 | `rate_limited` | 429 | Too many attempts; wait |
 | `internal` | 500 | A fault on our side |
 
@@ -243,6 +244,89 @@ positions.
 
 `204`. Puts a failed item back on the queue with its attempts reset. Only a failed item can be
 retried; anything else is `conflict`.
+
+## Sharing
+
+A share link is a token in a URL. Multiple links can point at one album, each with its own PIN,
+expiry and revocation. Creating the first live link publishes the album; revoking the last one
+returns it to `ready`.
+
+### `POST /api/albums/{id}/share-links`
+
+```json
+{ "pin": "4821", "expiresInDays": 30 }
+```
+
+Both optional. A PIN is 4 to 12 digits and is stored as an Argon2id hash. An expiry is 7, 30 or 90
+days, or absent for never. `201` with the link:
+
+```json
+{ "id": "…", "url": "https://mantel.example/a/d3miSPR2scaK", "token": "d3miSPR2scaK",
+  "hasPin": false, "expiresAt": null, "revokedAt": null, "createdAt": "…", "live": true }
+```
+
+A link without a PIN gets a public copy of the album cover for link previews. A link with a PIN does
+not: previews are fetched by crawlers with no credentials, so the cover would hand a picture of the
+album to anyone holding a URL the creator deliberately protected.
+
+### `GET /api/albums/{id}/share-links`
+
+Every link for the album, newest first, including revoked and expired ones.
+
+### `DELETE /api/share-links/{id}`
+
+`204`. Immediate: the manifest, the preview page and the public preview image all stop answering.
+The link then behaves exactly like a token that never existed.
+
+## Viewer endpoints
+
+No session, no account, and no cookie unless a PIN is unlocked.
+
+### `GET /api/share/{token}`
+
+The manifest: the album title, its status, and its items in order with signed media URLs.
+
+```json
+{
+  "title": "Cornwall 2026",
+  "status": "published",
+  "itemCount": 2,
+  "readyCount": 1,
+  "items": [
+    { "id": "…", "kind": "photo", "status": "ready", "caption": null,
+      "width": 2400, "height": 1600,
+      "thumbUrl": "…", "displayWebpUrl": "…", "displayAvifUrl": "…" },
+    { "id": "…", "kind": "video", "status": "processing" }
+  ]
+}
+```
+
+It carries no creator email, no account id and no album id, and the media keys carry none either.
+An item that is not ready appears with its state and no URLs, so the viewer shows a placeholder
+rather than a broken grid.
+
+Media URLs are signed at the top of the hour, so every viewer inside that hour receives a
+byte-identical URL and the CDN keeps one cache entry rather than one per viewer.
+
+`404` for a token that is unknown, revoked or expired — the three are indistinguishable.
+`401 pin_required` when the album has a PIN this browser has not answered.
+
+### `POST /api/share/{token}/unlock`
+
+```json
+{ "pin": "4821" }
+```
+
+`204` and one cookie: `HttpOnly`, `SameSite=Lax`, scoped to `/api/share/{token}`, holding a signed
+statement that this browser answered the PIN and nothing else. Ten attempts per link per address per
+hour, then `rate_limited` — including for the right PIN, because a link under attack is not one to
+open faster.
+
+### `GET /a/{token}`
+
+The album page. Ktor writes the title and `og:*` tags into the HTML shell and serves the same SPA
+bundle, so crawlers get their tags and there is no second runtime. Every album route carries
+`X-Robots-Tag: noindex, nofollow` and a matching meta tag.
 
 ## Worker endpoints
 

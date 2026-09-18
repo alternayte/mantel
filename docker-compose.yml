@@ -22,6 +22,7 @@ services:
       MANTEL_S3_SECRET_ACCESS_KEY: mantel-development
       MANTEL_PUBLIC_BASE_URL: ${MANTEL_PUBLIC_BASE_URL:-http://localhost:8080}
       MANTEL_WORKER_TOKEN: ${MANTEL_WORKER_TOKEN:-mantel-development}
+      MANTEL_COOKIE_SECRET: ${MANTEL_COOKIE_SECRET:-mantel-development-cookie-secret}
     ports:
       - "${MANTEL_PORT:-8080}:8080"
     healthcheck:

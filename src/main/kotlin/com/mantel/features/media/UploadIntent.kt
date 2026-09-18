@@ -1,8 +1,8 @@
 package com.mantel.features.media
 
 import com.mantel.features.account.Accounts
+import com.mantel.features.account.mediaPrefixFor
 import com.mantel.features.account.quota
-import com.mantel.features.account.storagePrefixFor
 import com.mantel.features.album.Albums
 import com.mantel.features.album.albumIdFrom
 import com.mantel.features.album.requireOwnAlbum
@@ -141,7 +141,7 @@ suspend fun createUploadIntent(
                 declared.mapIndexed { index, (file, size) ->
                     val itemId = ItemId(Ids.uuidV7(clock))
                     val (kind, extension) = ACCEPTED_TYPES.getValue(file.contentType)
-                    val key = "${storagePrefixFor(accountId)}albums/$albumId/$itemId/original.$extension"
+                    val key = "${mediaPrefixFor(itemId)}original.$extension"
                     MediaItems.insert {
                         it[id] = itemId
                         it[MediaItems.albumId] = albumId

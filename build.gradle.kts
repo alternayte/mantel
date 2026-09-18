@@ -32,6 +32,7 @@ dependencies {
     implementation(libs.ktor.client.cio)
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.angus.mail)
+    implementation(libs.argon2)
 
     implementation(libs.exposed.core)
     implementation(libs.exposed.jdbc)
