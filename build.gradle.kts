@@ -56,6 +56,13 @@ dependencies {
     testImplementation(libs.flyway.postgresql)
 }
 
+// Flyway 10+ finds its own SQL resolvers through META-INF/services. A fat jar that drops those
+// files leaves Flyway unable to recognise "V1__baseline.sql" as a migration, so the packaged app
+// silently applies none and fails later on a missing column. Merging them is not optional.
+tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJar") {
+    mergeServiceFiles()
+}
+
 tasks.test {
     useJUnitPlatform()
     testLogging {

@@ -26,9 +26,13 @@ agents:
     bash checks/check-headers.sh
 
 # recipe: check-slow
-# Run the checks too slow for every `just check`. Today: run the read-only commands quoted in AGENTS.md.
+# The checks too slow for every `just check`. Runs the commands quoted in agent files, then builds the image and drives a real upload through it. Needs Docker.
 check-slow:
+    #!/usr/bin/env bash
+    set -euo pipefail
     bash checks/agents-md.sh --run
+    docker compose up -d --build --wait
+    bash checks/slow/stack-smoke.sh
 
 # recipe: review
 # Review the branch diff against the default branch on two axes, each in a fresh read-only pi session.
@@ -144,13 +148,17 @@ fmt:
     ./gradlew --console=plain ktlintFormat
 
 # recipe: build
-# Build the production image: the SPA into the jar, then one container for both run modes.
+# Build the production image. The Dockerfile builds the SPA and the jar, so a clean clone needs only Docker.
 build:
+    docker build -t mantel:dev .
+
+# recipe: stack
+# Build the image and run the whole product in containers: app, worker, postgres, minio.
+stack:
     #!/usr/bin/env bash
     set -euo pipefail
-    cd web && bun install && bun run build && cd ..
-    ./gradlew --console=plain buildFatJar
-    docker build -t mantel:dev .
+    docker compose up -d --build --wait
+    bash checks/slow/stack-smoke.sh
 
 # recipe: model
 # Set the pi default provider. The model is the first model of that provider in models.json.

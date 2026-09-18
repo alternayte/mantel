@@ -1,7 +1,50 @@
-# Development dependencies only. The product itself is one app container plus PostgreSQL;
-# MinIO stands in for Cloudflare R2 so presigned upload is exercised in development, not discovered
-# in production (SDD.md 11).
+# `docker compose up` gives a working instance: the app, a worker, PostgreSQL and MinIO.
+# In deployment MinIO is replaced by Cloudflare R2, which leaves the app and PostgreSQL (SDD.md 11).
+#
+# `just dev` starts only postgres and minio, because the app then runs from Gradle with a reload.
 services:
+  app:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      MANTEL_DB_URL: jdbc:postgresql://postgres:5432/mantel
+      MANTEL_DB_USER: mantel
+      MANTEL_DB_PASSWORD: mantel
+      MANTEL_S3_ENDPOINT: http://minio:9000
+      # What the browser opens. With R2 or S3 this is the same as the endpoint and is left unset.
+      MANTEL_S3_PUBLIC_ENDPOINT: ${MANTEL_S3_PUBLIC_ENDPOINT:-http://localhost:9100}
+      MANTEL_S3_BUCKET: mantel
+      MANTEL_S3_ACCESS_KEY_ID: mantel
+      MANTEL_S3_SECRET_ACCESS_KEY: mantel-development
+      MANTEL_PUBLIC_BASE_URL: ${MANTEL_PUBLIC_BASE_URL:-http://localhost:8080}
+      MANTEL_WORKER_TOKEN: ${MANTEL_WORKER_TOKEN:-mantel-development}
+    ports:
+      - "${MANTEL_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8080' || exit 1"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+
+  # The same image in worker mode. It renders derivatives and holds no database credentials.
+  worker:
+    build: .
+    command: ["--worker"]
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      MANTEL_PUBLIC_BASE_URL: http://app:8080
+      MANTEL_S3_ENDPOINT: http://minio:9000
+      MANTEL_S3_BUCKET: mantel
+      MANTEL_S3_ACCESS_KEY_ID: mantel
+      MANTEL_S3_SECRET_ACCESS_KEY: mantel-development
+      MANTEL_WORKER_TOKEN: ${MANTEL_WORKER_TOKEN:-mantel-development}
+
   postgres:
     image: postgres:17-alpine
     environment:

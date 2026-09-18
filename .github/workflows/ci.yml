@@ -22,3 +22,23 @@ jobs:
           bun-version: latest
       - uses: extractions/setup-just@v2
       - run: just check
+
+  # The unit tests run from the classpath, so they cannot see a packaging fault. The fat jar once
+  # dropped Flyway's service files and silently applied no migrations at all; this job is what
+  # notices. It builds the image and drives a real upload through the running stack.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start the stack
+        run: docker compose up -d --build --wait
+      - name: Migrations applied
+        run: docker compose logs app | grep -q "Successfully applied"
+      - name: Upload a photo and wait for the worker
+        run: bash checks/slow/stack-smoke.sh
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+      - name: Stop
+        if: always()
+        run: docker compose down -v

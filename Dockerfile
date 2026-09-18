@@ -1,7 +1,24 @@
-# One image, two run modes. ffmpeg and libvips are here for --worker mode; the cost is paid in both
-# modes deliberately, so a self-hoster starts with `docker compose up` (SDD.md 3.1).
-FROM eclipse-temurin:21-jre-noble
+# One image, two run modes. Built from a clean clone with nothing installed but Docker, because
+# self-hosting is a first-class path and "build it yourself first" is not one (SDD.md 11).
 
+FROM oven/bun:1.2-alpine AS web
+WORKDIR /web
+COPY web/package.json web/bun.lock ./
+RUN bun install --frozen-lockfile
+COPY web/ ./
+RUN bun run build
+
+FROM gradle:8.14-jdk21 AS server
+WORKDIR /src
+COPY settings.gradle.kts build.gradle.kts ./
+COPY gradle/ gradle/
+# Resolve dependencies before the sources land, so a code change does not re-download the world.
+RUN gradle --no-daemon dependencies --quiet || true
+COPY src/ src/
+COPY --from=web /build/web-resources/ build/web-resources/
+RUN gradle --no-daemon buildFatJar -x test --quiet
+
+FROM eclipse-temurin:21-jre-noble
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       ffmpeg \
@@ -13,7 +30,7 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY build/libs/*-all.jar /app/mantel.jar
+COPY --from=server /src/build/libs/*-all.jar /app/mantel.jar
 
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/mantel.jar"]

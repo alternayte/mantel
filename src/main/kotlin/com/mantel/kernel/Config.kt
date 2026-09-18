@@ -32,6 +32,10 @@ data class Config(
                 storage =
                     StorageConfig(
                         endpoint = env("MANTEL_S3_ENDPOINT") ?: "http://localhost:9100",
+                        // A presigned URL is opened by a browser, not by this server. In compose the
+                        // two differ: the app reaches storage at http://minio:9000 and the browser
+                        // cannot. With R2 or S3 they are the same and this stays unset.
+                        publicEndpoint = env("MANTEL_S3_PUBLIC_ENDPOINT"),
                         region = env("MANTEL_S3_REGION") ?: "auto",
                         bucket = env("MANTEL_S3_BUCKET") ?: "mantel",
                         accessKeyId = env("MANTEL_S3_ACCESS_KEY_ID") ?: "mantel",
@@ -85,6 +89,7 @@ data class DatabaseConfig(val url: String, val user: String, val password: Strin
 
 data class StorageConfig(
     val endpoint: String,
+    val publicEndpoint: String? = null,
     val region: String,
     val bucket: String,
     val accessKeyId: String,

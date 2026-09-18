@@ -57,9 +57,10 @@ class S3ObjectStorage(
             .serviceConfiguration(serviceConfiguration)
             .build()
 
+    // Signed with the address the browser will use, which is not always the one this server uses.
     private val presigner: S3Presigner =
         S3Presigner.builder()
-            .endpointOverride(URI.create(config.endpoint))
+            .endpointOverride(URI.create(config.publicEndpoint ?: config.endpoint))
             .region(Region.of(config.region))
             .credentialsProvider(credentials)
             .serviceConfiguration(serviceConfiguration)
@@ -222,6 +223,9 @@ class S3ObjectStorage(
             client.headObject(HeadObjectRequest.builder().bucket(config.bucket).key(key).build()).contentLength()
         } catch (_: NoSuchKeyException) {
             null
+        } catch (failure: S3Exception) {
+            // Some providers answer a HEAD for a missing key with a bare 404 and no error code.
+            if (failure.statusCode() == 404) null else throw failure
         }
 
     override fun delete(keys: List<String>) {

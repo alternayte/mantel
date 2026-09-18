@@ -6,9 +6,9 @@ Mantel creates photo and video albums that are shared as a link. A recipient ope
 
 ## Run
 
-`just dev` starts postgres and minio, the API on :8080 and Vite on :5173 proxying /api.
+`just dev` starts postgres and minio, the API on :8080 and Vite on :5173 proxying /api, and writes .env on a clean clone.
 `just worker` runs the same binary in worker mode. `just migrate` applies the migrations.
-`just build` puts the SPA in the jar and builds the image. Copy `.env.example` to .env first.
+`just stack` builds the image and runs the whole product in containers, then drives one upload through it.
 
 ## Test
 
@@ -16,7 +16,7 @@ Mantel creates photo and video albums that are shared as a link. A recipient ope
 `just test` runs the tests alone. Docker must be running; the database tests use Testcontainers.
 The photo tests shell out to `vips`, and AVIF needs libheif with an AV1 encoder. Install libvips: brew install vips, or apt libvips-tools with libheif-plugin-aomenc.
 
-`just check-slow` runs the read-only commands quoted in agent files.
+`just check-slow` runs the commands quoted in agent files, then `just stack`. Unit tests run from the classpath and cannot see a packaging fault; that is what `just stack` is for.
 
 The pre-commit hook at `.githooks/pre-commit` runs `checks/vocabulary.sh` and every script in `checks/staged/` against the staged diff.
 
