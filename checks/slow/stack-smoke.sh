@@ -9,7 +9,7 @@ set -euo pipefail
 
 base="${MANTEL_BASE_URL:-http://localhost:8080}"
 jar="$(mktemp)"
-photo="$(mktemp -t photo).jpg"
+photo="$(mktemp -t photo.XXXXXX).jpg"
 trap 'rm -f "$jar" "$photo"' EXIT
 
 # A real JPEG, made by the same libvips the product uses.
