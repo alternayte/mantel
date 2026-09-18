@@ -7,7 +7,7 @@ Mantel creates photo and video albums that are shared as a link. A recipient ope
 ## Run
 
 `just dev` starts postgres and minio, the API on :8080 and Vite on :5173 proxying /api, and writes .env on a clean clone.
-`just worker` runs the same binary in worker mode. `just migrate` applies the migrations. `just tokens` regenerates `web/src/styles/tokens.css` from `design/tokens.json`, which is the source.
+`just worker` runs the same binary in worker mode. `just migrate` applies the migrations. `just tokens` regenerates `web/src/styles/tokens.css` and the Compose theme from `design/tokens.json`, which is the source.
 `just stack` builds the image and runs the whole product in containers, then drives one upload through it.
 
 ## Test
@@ -16,8 +16,8 @@ Mantel creates photo and video albums that are shared as a link. A recipient ope
 `just test` runs the tests alone. Docker must be running; the database tests use Testcontainers.
 The photo tests shell out to `vips`, and AVIF needs libheif with an AV1 encoder. Install libvips: brew install vips, or apt libvips-tools with libheif-plugin-aomenc.
 
+`just check-android` builds the Android client: its own Gradle build under `android/`, so `just check` needs no Android SDK. `just release-android` signs it.
 `just check-slow` runs the commands quoted in agent files, then `just stack`. Unit tests run from the classpath and cannot see a packaging fault; that is what `just stack` is for.
-
 The pre-commit hook at `.githooks/pre-commit` runs `checks/vocabulary.sh` and every script in `checks/staged/` against the staged diff.
 
 ## Layout
@@ -32,7 +32,7 @@ tables only read it and are registered in `src/main/kotlin/com/mantel/SchemaRegi
 ## Stack rules
 
 - Server is Kotlin on Ktor, one JVM. The worker is the same binary in worker mode, not a separate service.
-- Web is one React SPA built with Vite. Bun is a build tool only; no JavaScript runtime ships.
+- Web is one React SPA built with Vite; Bun is a build tool only. Android is KMP and Compose under `android/`, a pure consumer of the API.
 - PostgreSQL is state and the job queue. No broker and no job library.
 - Object storage is S3-compatible: MinIO in development, Cloudflare R2 as the default deployment.
 - Deployment is one app container plus PostgreSQL.

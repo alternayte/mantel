@@ -75,10 +75,14 @@ A creator session is an HttpOnly, SameSite=Lax cookie named `mantel_session`, se
 sign-in. It is `Secure` when the request arrives over HTTPS. Viewer routes set no cookie unless a
 share link has a PIN and the viewer unlocks it (M5).
 
+A client that is not a browser holds the same session as a bearer token instead:
+`Authorization: Bearer <session>`. It is the person signed in, not an agent, so it reaches the
+routes an API token may not (`GET /api/account/export`, `DELETE /api/account`, minting tokens).
+
 ### `POST /api/auth/magic-link`
 
 ```json
-{ "email": "nate@example.com" }
+{ "email": "nate@example.com", "challenge": "…" }
 ```
 
 `202` with `{"status":"sent"}` whether or not the address has an account, so the endpoint does not
@@ -86,10 +90,13 @@ report who is registered. Requesting a link for an unknown address creates the a
 separate sign-up. The link works once and expires in 15 minutes. Five requests per address per
 hour, then `rate_limited`.
 
+`challenge` is optional and is for a native client: see **Signing in without a browser** below.
+
 ### `GET /api/auth/magic-link/callback?token=…`
 
 Consumes the link, sets the session cookie and redirects to `/app`. A spent, unknown or expired
-token is `validation_failed`.
+token is `validation_failed`. When the link was requested with a `challenge`, it redirects to
+`mantel://auth?code=…` instead and sets no cookie.
 
 ### `GET /api/auth/methods`
 
@@ -100,20 +107,52 @@ token is `validation_failed`.
 What this instance can sign someone in with. A self-hoster without a GitHub app should not be shown
 a button that answers with an error.
 
-### `GET /api/auth/github`
+### `GET /api/auth/github?challenge=…`
 
 Redirects to GitHub with a `state` value held in a short-lived cookie scoped to the callback.
-`validation_failed` when GitHub sign-in is not configured.
+`validation_failed` when GitHub sign-in is not configured. `challenge` is optional and behaves as it
+does on a magic link.
 
 ### `GET /api/auth/github/callback?code=…&state=…`
 
 Verifies `state`, exchanges the code, and signs in. GitHub identifies an account by its numeric id,
 or by a verified primary email address; an unverified address cannot claim an existing account.
-Sets the session cookie and redirects to `/app`.
+Sets the session cookie and redirects to `/app`, or to `mantel://auth?code=…` when the flow was
+started with a `challenge`.
 
 ### `POST /api/auth/logout`
 
 `204`. Deletes the session row and clears the cookie.
+
+## Signing in without a browser
+
+A native client cannot read the HttpOnly cookie the flows above write: the magic link opens in the
+mail application's browser and GitHub opens in a custom tab, and neither shares a cookie jar with
+the app. So it runs the same flows and collects the session at the end instead.
+
+1. The client makes a PKCE verifier and sends `challenge` — unpadded base64url of its SHA-256
+   digest, 43 characters — with `POST /api/auth/magic-link`, or on `GET /api/auth/github`.
+2. The person signs in in their own browser, exactly as before.
+3. The server mints a one-time code and redirects to `mantel://auth?code=…`. That browser gets no
+   session: it is not the person's signed-in browser and does not become one.
+4. The client exchanges the code for the session.
+
+### `POST /api/auth/native/exchange`
+
+```json
+{ "code": "…", "verifier": "…" }
+```
+
+```json
+{ "session": "…", "expiresAt": "2026-10-18T09:12:44Z" }
+```
+
+The code works once and expires five minutes after it is minted. A wrong verifier spends it too: a
+code that survives a wrong guess is a code worth guessing at. Either way the answer is
+`validation_failed`, which does not say which of the two was wrong.
+
+The `session` is then sent as `Authorization: Bearer <session>` on every call, and it expires 30
+days after it is issued, like any other session.
 
 ## Account
 

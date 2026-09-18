@@ -23,6 +23,26 @@ jobs:
       - uses: extractions/setup-just@v2
       - run: just check
 
+  # The Android client is its own Gradle build and its own job, so a contributor without an Android
+  # SDK still has a gate that runs. The runner has one.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # The runner image already carries the SDK and its accepted licences. The action's default
+      # package list still asks for `tools`, which no longer exists, so it installs nothing.
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+      - uses: gradle/actions/setup-gradle@v4
+      - uses: extractions/setup-just@v2
+      - run: just check-android
+
   # The unit tests run from the classpath, so they cannot see a packaging fault. The fat jar once
   # dropped Flyway's service files and silently applied no migrations at all; this job is what
   # notices. It builds the image and drives a real upload through the running stack.

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  A session travels on every request, so HTTPS is the only address the app will use in anger.
+  The two exceptions are a development instance on this machine: `just dev` serves plain HTTP, and
+  the emulator reaches the host at 10.0.2.2. Nothing else is exempt.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

@@ -17,6 +17,7 @@ import com.mantel.features.album.listAlbums
 import com.mantel.features.album.updateAlbum
 import com.mantel.features.auth.completeGitHubOAuth
 import com.mantel.features.auth.consumeMagicLink
+import com.mantel.features.auth.exchangeNativeCode
 import com.mantel.features.auth.getSignInMethods
 import com.mantel.features.auth.requestMagicLink
 import com.mantel.features.auth.revokeSession
@@ -141,6 +142,10 @@ fun Application.module(services: Services) {
         }
 
         get("/api/auth/methods") { getSignInMethods(call, services.config) }
+
+        // A native client cannot read the session cookie the browser flows write, so it exchanges a
+        // one-time code for the session instead (SDD.md 6.1).
+        post("/api/auth/native/exchange") { exchangeNativeCode(call) }
 
         // The agent surface: the same API, the same scopes, in the same binary (SDD.md 9).
         post("/mcp") { serveMcp(call, services.config, services.storage, services.clock) }

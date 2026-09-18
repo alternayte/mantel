@@ -1,0 +1,9 @@
+<!-- Generated from design/tokens.json by `just tokens`. Do not edit. -->
+<resources>
+    <color name="colour_surface">#0c0c0d</color>
+    <color name="colour_surface_lift">#161617</color>
+    <color name="colour_ink">#ece9e4</color>
+    <color name="colour_muted">#87837c</color>
+    <color name="colour_line">#2a2a2c</color>
+    <color name="colour_fail">#b0705f</color>
+</resources>

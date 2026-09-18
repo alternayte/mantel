@@ -52,3 +52,60 @@ jobs:
             ```
 
             Self-hosting: https://github.com/${{ github.repository }}/blob/main/docs/self-hosting.md
+
+  # The app is sideloaded, so the release page is the only way to get it. The job runs only when
+  # the repository holds a signing key: an unsigned APK will not install, and signing with a
+  # different key breaks the upgrade path of every install that already exists.
+  android:
+    runs-on: ubuntu-latest
+    # A job's `if` cannot read secrets, so the guard is an env value the steps test. Without a key
+    # the job does nothing rather than publishing an APK that will not install.
+    env:
+      KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+    steps:
+      - if: env.KEYSTORE == ''
+        run: echo "No signing key in this repository. The release carries no APK." >> "$GITHUB_STEP_SUMMARY"
+
+      - if: env.KEYSTORE != ''
+        uses: actions/checkout@v4
+
+      - if: env.KEYSTORE != ''
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - if: env.KEYSTORE != ''
+        # The runner image already carries the SDK and its accepted licences. The action's default
+        # package list still asks for `tools`, which no longer exists, so it installs nothing.
+        uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
+
+      - if: env.KEYSTORE != ''
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Restore the keystore
+        if: env.KEYSTORE != ''
+        run: echo "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/mantel.jks"
+
+      - name: Build the signed APK
+        if: env.KEYSTORE != ''
+        working-directory: android
+        env:
+          MANTEL_KEYSTORE: ${{ runner.temp }}/mantel.jks
+          MANTEL_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MANTEL_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: ../gradlew --console=plain assembleRelease
+
+      - name: Name it after the tag
+        if: env.KEYSTORE != ''
+        run: |
+          mv android/build/outputs/apk/release/mantel-android-release.apk \
+             "mantel-android-${{ github.ref_name }}.apk"
+
+      - if: env.KEYSTORE != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          files: mantel-android-${{ github.ref_name }}.apk

@@ -11,3 +11,6 @@ web/dist/
 site/node_modules/
 site/dist/
 site/.astro/
+
+# The Android SDK path is this machine, not this repository.
+android/local.properties

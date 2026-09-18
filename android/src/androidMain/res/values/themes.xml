@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      The frame the platform paints before Compose runs. The viewer has one mode (DESIGN.md), so
+      the app does too, and the colour is the generated token rather than a copy of it.
+    -->
+    <style name="Theme.Mantel" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/colour_surface</item>
+        <item name="android:statusBarColor">@color/colour_surface</item>
+        <item name="android:navigationBarColor">@color/colour_surface</item>
+    </style>
+</resources>

@@ -51,9 +51,15 @@ private fun githubOrFail(config: Config) =
 suspend fun startGitHubOAuth(
     call: ApplicationCall,
     config: Config,
+    clock: Clock = Clock.system,
 ) {
     val github = githubOrFail(config)
+    val challenge = validChallenge(call.request.queryParameters["challenge"])
     val state = Ids.token(24)
+    if (challenge != null) {
+        val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
+        db { openNativeFlow(state, challenge, now) }
+    }
     call.setCookie(STATE_COOKIE, state, maxAgeSeconds = 600, path = "/api/auth/github")
     val redirectUri = "${config.publicBaseUrl}/api/auth/github/callback"
     call.respondRedirect(
@@ -142,7 +148,12 @@ suspend fun completeGitHubOAuth(
             }
         }
 
-    issueSession(call, accountId, clock)
     call.setCookie(STATE_COOKIE, "", maxAgeSeconds = 0, path = "/api/auth/github")
+    val nativeCode = closeNativeFlow(state, accountId, clock)
+    if (nativeCode != null) {
+        call.respondRedirect("$NATIVE_REDIRECT?code=$nativeCode")
+        return
+    }
+    issueSession(call, accountId, clock)
     call.respondRedirect("/app")
 }
