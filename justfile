@@ -135,10 +135,16 @@ migrate:
     ./gradlew --quiet --console=plain run --args="--migrate"
 
 # recipe: seed
-# Write a demo account and album for local work.
-seed:
-    @echo "seed: nothing to write. The account arrives in M1 and the album in M2 (BUILD.md section 4)." >&2
-    @exit 1
+# Seed the permanent demo album the README links to. Idempotent.
+# Local: just seed. Deployed: just seed --base https://albums.example.com --token mantel_...
+seed *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ $# -eq 0 ]; then
+        bun run scripts/seed-demo.ts --local
+    else
+        bun run scripts/seed-demo.ts {{ARGS}}
+    fi
 
 # recipe: test
 # Tests only. Needs Docker: the database tests use Testcontainers.

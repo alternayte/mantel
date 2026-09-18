@@ -77,6 +77,25 @@ Two things the app asks of the bucket at startup, both best effort:
 
 Everything else in the bucket is private and served through signed URLs.
 
+## The demo album
+
+The README links to a permanent public album. Seed it once the instance is up:
+
+```
+# on the machine with the repository, pointing at the deployment
+bun run scripts/seed-demo.ts --base https://albums.example.com --token mantel_...
+```
+
+Make the token at `/app/settings` with `albums:read`, `albums:write` and `share:write`. The script
+creates the album, uploads the fourteen CC0 fixtures from `site/references/album`, waits for the
+worker, sets the captions and the cover, and creates one link with no PIN and no expiry. It prints
+the URL and the line to paste into the README.
+
+It is idempotent. Run it again after a deployment and it reports what is already there rather than
+making a second album; run it after restoring a backup to check the demo is still whole. `--replace`
+re-uploads the photographs, and `--local` signs in through the compose stack's log instead of a
+token.
+
 ## Backups
 
 Two things to back up:

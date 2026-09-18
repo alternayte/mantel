@@ -27,7 +27,7 @@ link is five interactions.
 
 A permanent public album, which does not expire: **not yet published.** This repository builds and
 runs; the demo instance is not deployed. Until it is, `docker compose up` gives you the real thing
-in about a minute.
+in about a minute, and `just seed` fills it with the same album the demo will hold.
 
 ## Quick start
 
