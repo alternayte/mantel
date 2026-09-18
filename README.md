@@ -100,10 +100,13 @@ to.
 | Scoped API tokens, `llms.txt`, OpenAPI, MCP | Done |
 | Marketing site and documentation | Published |
 | Public demo instance | Intended, no date |
-| Android creator app (KMP + Compose), sideloaded | 0.2.0 |
+| Android creator app (KMP + Compose), sideloaded | Done, 0.2.0 |
+| Library, and phone backup with optional sync | Done, 0.3.0 |
+| Hosted instance, plans and billing | Not scheduled |
+| Search of the library: faces, places, text | Not scheduled |
 | iOS | Not planned |
 | HLS adaptive streaming | Not scheduled |
-| Family spaces, face recognition, guest upload, vanity slugs | Not scheduled |
+| Family spaces, guest upload, vanity slugs | Not scheduled |
 
 ## Self-hosting
 
