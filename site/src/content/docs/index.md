@@ -1,5 +1,5 @@
 ---
-title: Mantel
+title: Albums shared as a link
 description: Photo and video albums shared as a link.
 ---
 

@@ -134,6 +134,16 @@ migrate:
     docker compose up -d --wait postgres
     ./gradlew --quiet --console=plain run --args="--migrate"
 
+# recipe: site
+# Build the marketing site and documentation, and publish it. Static files, no runtime.
+site:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cd site
+    bun install
+    bun run build
+    bunx wrangler deploy
+
 # recipe: seed
 # Seed the permanent demo album the README links to. Idempotent.
 # Local: just seed. Deployed: just seed --base https://albums.example.com --token mantel_...

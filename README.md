@@ -71,6 +71,8 @@ fingerprinting: nothing is stored about a recipient at all.
 
 Albums are unlisted and `noindex` by design. They are not meant to be found.
 
+The documentation is also published at **[mantel.nate-andert.workers.dev](https://mantel.nate-andert.workers.dev)**.
+
 ## Documentation
 
 | Document | What is in it |

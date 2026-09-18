@@ -63,6 +63,24 @@ rendered. The worker holds no database credentials; this token is how it talks t
 **The worker needs the same storage credentials as the app,** because it reads originals and writes
 derivatives directly. It does not need, and should not be given, database access.
 
+## Coolify
+
+Coolify can run this from the repository: point it at a Docker Compose resource using
+`docker-compose.yml`, and set the environment in Coolify rather than in the file. The variables that
+must be set are `MANTEL_PUBLIC_BASE_URL`, `MANTEL_COOKIE_SECRET`, `MANTEL_WORKER_TOKEN` and the four
+`MANTEL_S3_*` values; everything else has a working default
+([configuration.md](configuration.md)).
+
+Two things to change from the development compose file:
+
+- **Drop the `minio` and `minio-bucket` services** and point `MANTEL_S3_*` at R2 or another bucket.
+  MinIO in the compose file is there so presigned upload is exercised in development.
+- **Set `MANTEL_S3_PUBLIC_ENDPOINT`** if the browser reaches storage at a different address than the
+  server does. With R2 they are the same and it stays unset.
+
+The worker is the same image with `--worker`, so it is a second service in the same resource. It
+needs the storage credentials and the worker token, and it must not be given database credentials.
+
 ## Storage
 
 Any S3-compatible bucket. R2 is the default because egress is free and media is almost all egress.

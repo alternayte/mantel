@@ -7,8 +7,12 @@ The marketing page and the documentation, as a static site. Zero containers, not
 cd site && bun install && bun run dev
 ```
 
-`bun run build` writes `dist/`, which is what gets deployed — Cloudflare Pages by default. The apex
-domain serves this; the app serves `/app` and `/a/{token}`.
+`just site` builds and publishes it. It is live at **https://mantel.nate-andert.workers.dev** — a
+free subdomain, so this needs no domain of its own yet. When there is one, point the apex at this
+and the app keeps `/app` and `/a/{token}`.
+
+Cloudflare Pages is now part of Workers, so `wrangler deploy` with an `assets` directory is the
+deployment; `wrangler.jsonc` holds the two lines that describes.
 
 The pages under `src/content/docs/` are thin wrappers that carry the same words as `docs/` in the
 repository root, so there is one source for each document rather than two that drift.

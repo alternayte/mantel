@@ -1,0 +1,7 @@
+{
+  // The marketing page and the documentation, as static files. Zero runtime: the product is a
+  // container elsewhere, and this is only HTML (SDD.md 8).
+  "name": "mantel",
+  "compatibility_date": "2026-09-18",
+  "assets": { "directory": "./dist" }
+}
