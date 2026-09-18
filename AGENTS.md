@@ -33,11 +33,9 @@ tables only read it and are registered in `src/main/kotlin/com/mantel/SchemaRegi
 
 - Server is Kotlin on Ktor, one JVM. The worker is the same binary in worker mode, not a separate service.
 - Web is one React SPA built with Vite; Bun is a build tool only. Android is KMP and Compose under `android/`, a pure consumer of the API.
-- PostgreSQL is state and the job queue. No broker and no job library.
-- Object storage is S3-compatible: MinIO in development, Cloudflare R2 as the default deployment.
-- Deployment is one app container plus PostgreSQL.
+- PostgreSQL is state and the job queue; no broker and no job library. The API owns every write to it, and the worker has no database credentials.
+- Object storage is S3-compatible: MinIO in development, Cloudflare R2 as the default deployment. Deployment is one app container plus PostgreSQL.
 - The REST API is the only interface; every client consumes it and no client gets a branch of its own.
-- The API owns every write to PostgreSQL. The worker has no database credentials.
 - No event sourcing. Media lifecycle state is a pure transition function persisted to a column.
 - Row ids are UUIDv7 from `Ids.uuidV7`, never `randomUUID`; they sort by creation time.
 - An id, a title, a caption and a byte count are value classes, not String, UUID or Long. A rule lives in the type, once.
@@ -58,3 +56,8 @@ tables only read it and are registered in `src/main/kotlin/com/mantel/SchemaRegi
 - publish: the transition that creates an album's first live share link.
 - worker: the same binary in worker mode; renders derivatives and reports completion to the API.
 - session: a signed-in creator's browser, held by an HttpOnly cookie carrying a random secret and no identifier.
+- library: every media item an account owns, independent of any album. Avoid: gallery, vault. The phone's camera roll is a different thing.
+- album item: a media item's membership of an album, with its position and its caption in that album. Avoid: album media, album photo.
+- sync: the Android app's one-way, additive background upload of the phone's media to the library. Avoid: mirror, two-way sync.
+- backed up: a media item whose original and thumbnail exist and whose viewer derivatives do not. Avoid: saved.
+- shareable: a media item whose every derivative exists, so an album holding it can publish.
