@@ -1,0 +1,4 @@
+# A composable is a noun on the screen, not a verb, and Compose names it in PascalCase. ktlint's
+# function-naming rule has no way to know that without being told which annotation means it.
+[*.{kt,kts}]
+ktlint_function_naming_ignore_when_annotated_with = Composable

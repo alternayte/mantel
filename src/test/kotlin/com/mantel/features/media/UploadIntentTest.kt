@@ -70,6 +70,7 @@ class UploadIntentTest {
                     "GET /api/auth/github/callback",
                     "POST /api/auth/logout",
                     "GET /api/auth/methods",
+                    "POST /api/auth/native/exchange",
                     "POST /mcp",
                     "GET /llms.txt",
                     "GET /openapi.json",

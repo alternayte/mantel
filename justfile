@@ -27,6 +27,18 @@ agents:
     bash checks/agents-md.sh
     bash checks/check-headers.sh
 
+# recipe: check-android
+# The Android client. Its own Gradle build, so `just check` needs no Android SDK and this recipe says so plainly when one is missing.
+check-android:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -z "${ANDROID_HOME:-}" ] && [ ! -f android/local.properties ]; then
+        echo "check-android: no Android SDK. Set ANDROID_HOME, or write sdk.dir into android/local.properties." >&2
+        exit 1
+    fi
+    cd android
+    ../gradlew --console=plain ktlintCheck testDebugUnitTest assembleDebug
+
 # recipe: check-slow
 # The checks too slow for every `just check`. Runs the commands quoted in agent files, then builds the image and drives a real upload through it. Needs Docker.
 check-slow:

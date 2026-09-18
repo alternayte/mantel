@@ -41,8 +41,12 @@ object MagicLinks : Table("magic_link") {
     override val primaryKey = PrimaryKey(tokenHash)
 }
 
+/**
+ * A native client sends a PKCE challenge with the request. The link it receives is the same link;
+ * what changes is where consuming it sends the browser (NativeSignIn.kt).
+ */
 @Serializable
-data class MagicLinkRequest(val email: String)
+data class MagicLinkRequest(val email: String, val challenge: String? = null)
 
 private val LINK_LIFETIME: Duration = Duration.ofMinutes(15)
 private val EMAIL = Regex("^[^@\\s]+@[^@\\s.]+\\.[^@\\s]+$")
@@ -58,7 +62,9 @@ suspend fun requestMagicLink(
     limiter: RateLimiter,
     clock: Clock = Clock.system,
 ) {
-    val email = call.receive<MagicLinkRequest>().email.trim()
+    val request = call.receive<MagicLinkRequest>()
+    val email = request.email.trim()
+    val challenge = validChallenge(request.challenge)
     if (!EMAIL.matches(email)) {
         throw DomainException(ErrorCode.VALIDATION_FAILED, "That is not an email address")
     }
@@ -92,6 +98,7 @@ suspend fun requestMagicLink(
                 it[expiresAt] = now.plus(LINK_LIFETIME)
                 it[createdAt] = now
             }
+            if (challenge != null) openNativeFlow(secret, challenge, now)
             id
         }
 
@@ -143,6 +150,11 @@ suspend fun consumeMagicLink(
             row?.get(MagicLinks.accountId)
         } ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That link has been used or has expired")
 
+    val code = closeNativeFlow(secret, accountId, clock)
+    if (code != null) {
+        call.respondRedirect("$NATIVE_REDIRECT?code=$code")
+        return
+    }
     issueSession(call, accountId, clock)
     call.respondRedirect("/app")
 }
