@@ -11,6 +11,7 @@ data class Config(
     val publicBaseUrl: String,
     val defaultQuota: Bytes,
     val cookieSecret: String,
+    val devAssetsOrigin: String?,
     val database: DatabaseConfig,
     val storage: StorageConfig,
     val smtp: SmtpConfig?,
@@ -27,6 +28,9 @@ data class Config(
                 // Signs the PIN unlock cookie. Unset means a fresh one each start, which only costs
                 // viewers of PIN'd albums an extra unlock after a restart.
                 cookieSecret = env("MANTEL_COOKIE_SECRET") ?: Ids.token(32),
+                // Set by `just dev` so the album page at :8080 loads the Vite server's modules.
+                // Unset in a deployment, where the assets come out of the jar.
+                devAssetsOrigin = env("MANTEL_DEV_ASSETS_ORIGIN"),
                 database =
                     DatabaseConfig(
                         url = env("MANTEL_DB_URL") ?: "jdbc:postgresql://localhost:5432/mantel",

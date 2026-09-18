@@ -45,6 +45,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
 import io.ktor.server.engine.embeddedServer
+import io.ktor.server.http.content.staticResources
 import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.calllogging.CallLogging
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
@@ -72,6 +73,7 @@ private val log = LoggerFactory.getLogger("com.mantel.http")
 /** What a request handler needs, assembled once at startup and passed in. */
 class Services(
     val config: Config,
+    val assets: WebAssets = WebAssets.load(config.devAssetsOrigin),
     val clock: Clock = Clock.system,
     val storage: ObjectStorage,
     val mailer: Mailer,
@@ -155,9 +157,14 @@ fun Application.module(services: Services) {
         post("/api/share/{token}/unlock") {
             unlock(call, services.config, services.pinLimiter, services.clock)
         }
-        get("/a/{token}") { serveOgShell(call, services.config, services.clock) }
+        get("/a/{token}") { serveOgShell(call, services.config, services.assets, services.clock) }
         // The preview image a PIN'd album shows in place of its cover. It ships in the jar: it is
         // not media, and it must load for a crawler with no credentials.
+        // The built SPA. Hashed filenames, so they are immutable and may be cached for a year.
+        staticResources("/assets", "web/assets") {
+            cacheControl { listOf(io.ktor.http.CacheControl.MaxAge(maxAgeSeconds = 31_536_000)) }
+        }
+
         get("/og-placeholder.png") {
             val bytes = Services::class.java.getResourceAsStream("/static/og-placeholder.png")!!.readBytes()
             call.respondBytes(bytes, ContentType.Image.PNG)

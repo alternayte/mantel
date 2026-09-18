@@ -18,5 +18,9 @@ fun Application.routeInventory(): Set<String> {
         val mine = method?.let { listOf("$it $path") } ?: emptyList()
         return mine + route.children.flatMap { walk(it, if (method == null) here else path) }
     }
-    return walk(plugin(RoutingRoot), "").toSet()
+    // Ktor's static-content route carries an anonymous object in its selector, whose name changes
+    // every run. The route is still worth listing, so it is named for what it is.
+    return walk(plugin(RoutingRoot), "")
+        .map { it.replace(Regex("/io\\.ktor[^/]*"), "") }
+        .toSet()
 }

@@ -2,10 +2,9 @@ package com.mantel.features.viewer
 
 import com.mantel.features.album.Albums
 import com.mantel.features.share.ogKeyFor
+import com.mantel.http.WebAssets
 import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
-import com.mantel.kernel.DomainException
-import com.mantel.kernel.ErrorCode
 import com.mantel.kernel.db
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
@@ -24,25 +23,29 @@ import org.jetbrains.exposed.sql.selectAll
 suspend fun serveOgShell(
     call: ApplicationCall,
     config: Config,
+    assets: WebAssets,
     clock: Clock = Clock.system,
 ) {
     val token = tokenFrom(call)
-    val linked = resolveToken(token, clock)
 
+    // A link that is unknown, revoked or expired is still opened by a person in a browser, so it
+    // gets the same page with a 404 on it rather than a JSON error. Unknown and revoked look
+    // identical, because telling them apart tells a stranger their forwarded link was real.
+    val linked = runCatching { resolveToken(token, clock) }.getOrNull()
     val album =
-        db { Albums.selectAll().where { Albums.id eq linked.albumId }.singleOrNull() }
-            ?: throw DomainException(ErrorCode.NOT_FOUND, "No such album")
+        linked?.let { db { Albums.selectAll().where { Albums.id eq it.albumId }.singleOrNull() } }
 
-    val title = album[Albums.title].value
-    val description = album[Albums.description] ?: "${album[Albums.itemCount]} photos"
+    val status = if (album == null) HttpStatusCode.NotFound else HttpStatusCode.OK
+    val title = album?.get(Albums.title)?.value ?: "Album"
+    val description = album?.get(Albums.description) ?: album?.let { "${it[Albums.itemCount]} photos" } ?: ""
     val image =
-        if (linked.needsPin) {
+        if (album == null || linked?.needsPin != false) {
             "${config.publicBaseUrl}/og-placeholder.png"
         } else {
             "${config.storage.publicEndpoint ?: config.storage.endpoint}/${config.storage.bucket}/${ogKeyFor(token)}"
         }
 
-    call.respondText(ContentType.Text.Html, HttpStatusCode.OK) {
+    call.respondText(ContentType.Text.Html, status) {
         """
         <!doctype html>
         <html lang="en">
@@ -57,10 +60,11 @@ suspend fun serveOgShell(
             <meta property="og:image" content="${image.escaped()}" />
             <meta name="twitter:card" content="summary_large_image" />
             <link rel="preload" as="image" href="${image.escaped()}" />
+            ${assets.headTags()}
           </head>
           <body>
             <div id="root"></div>
-            <script type="module" src="/app/assets/index.js"></script>
+            ${assets.bodyTags()}
           </body>
         </html>
         """.trimIndent()

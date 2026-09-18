@@ -14,5 +14,14 @@ export default defineConfig({
   build: {
     outDir: '../build/web-resources/web',
     emptyOutDir: true,
+    // Two entries, not one route tree: a recipient opening a link must not download the authoring
+    // application, and the viewer's budget is 90 kB gzipped for everything it loads (SDD.md 7.3).
+    rollupOptions: {
+      input: {
+        app: 'index.html',
+        viewer: 'viewer.html',
+      },
+    },
+    manifest: true,
   },
 })

@@ -1,0 +1,34 @@
+/* Generated from design/tokens.json by `just tokens`. Do not edit. */
+:root {
+  /* colour */
+  --colour-surface: #0c0c0d;
+  --colour-surface-lift: #161617;
+  --colour-ink: #ece9e4;
+  --colour-muted: #87837c;
+  --colour-line: #2a2a2c;
+  --colour-fail: #b0705f;
+  /* space */
+  --space-gutter: 8px;
+  --space-gutter-tight: 3px;
+  --space-page-x: 2vw;
+  --space-title-y: 4rem;
+  --space-tail: 8rem;
+  /* type */
+  --type-family: ui-sans-serif, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --type-title: 0.82rem;
+  --type-title-track: 0.2em;
+  --type-body: 0.9rem;
+  --type-caption: 0.78rem;
+  /* radius */
+  --radius-none: 0px;
+  --radius-card: 10px;
+  /* motion */
+  --motion-fast: 120ms;
+  --motion-medium: 220ms;
+  --motion-ease: cubic-bezier(0.2, 0, 0, 1);
+  /* layout */
+  --layout-measure: min(96vw, 1560px);
+  --layout-row-height: 340px;
+  --layout-row-height-sm: 220px;
+  --layout-phone-breakpoint: 640px;
+}

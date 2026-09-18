@@ -16,6 +16,7 @@ Mantel creates photo and video albums that are shared as a link. A recipient ope
 `just test` runs the tests alone. Docker must be running; the database tests use Testcontainers.
 The photo tests shell out to `vips`, and AVIF needs libheif with an AV1 encoder. Install libvips: brew install vips, or apt libvips-tools with libheif-plugin-aomenc.
 
+`just tokens` regenerates `web/src/styles/tokens.css` from `design/tokens.json`. The JSON is the source.
 `just check-slow` runs the commands quoted in agent files, then `just stack`. Unit tests run from the classpath and cannot see a packaging fault; that is what `just stack` is for.
 
 The pre-commit hook at `.githooks/pre-commit` runs `checks/vocabulary.sh` and every script in `checks/staged/` against the staged diff.

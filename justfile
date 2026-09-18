@@ -13,8 +13,9 @@ check:
             fail=1
         fi
     done
-    cd web && bun install && bun run build || fail=1
+    cd web && bun install && bun run build && bun test || fail=1
     cd ..
+    bash checks/bundle.sh || fail=1
     ./gradlew --console=plain ktlintCheck build || fail=1
     exit "$fail"
 
@@ -110,6 +111,7 @@ dev:
     # A clean clone has no .env, and the worker token has no default on purpose.
     [ -f .env ] || { cp .env.example .env; echo "wrote .env from .env.example"; }
     docker compose up -d --wait postgres minio
+    export MANTEL_DEV_ASSETS_ORIGIN="http://localhost:5173"
     trap 'kill 0' EXIT
     ./gradlew --quiet --console=plain run &
     (cd web && bun install && bun run dev) &
@@ -141,6 +143,11 @@ seed:
 # Tests only. Needs Docker: the database tests use Testcontainers.
 test:
     ./gradlew --console=plain test
+
+# recipe: tokens
+# Generate web/src/styles/tokens.css from design/tokens.json. The JSON is the source.
+tokens:
+    bun run scripts/tokens.ts
 
 # recipe: fmt
 # Format Kotlin.

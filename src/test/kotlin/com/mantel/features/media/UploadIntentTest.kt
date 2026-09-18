@@ -96,6 +96,7 @@ class UploadIntentTest {
                     "POST /api/share/{token}/unlock",
                     "GET /a/{token}",
                     "GET /og-placeholder.png",
+                    "GET /assets/{...}",
                 ),
                 routes,
             )

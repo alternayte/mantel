@@ -229,6 +229,7 @@ fun testConfig(
                 partSize = Bytes(16L * 1024 * 1024),
             ),
     cookieSecret = "test-cookie-secret",
+    devAssetsOrigin = null,
     smtp = null,
     github = github,
     worker =
