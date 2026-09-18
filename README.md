@@ -25,9 +25,11 @@ link is five interactions.
 
 ## Live demo
 
-A permanent public album, which does not expire: **not yet published.** This repository builds and
-runs; the demo instance is not deployed. Until it is, `docker compose up` gives you the real thing
-in about a minute, and `just seed` fills it with the same album the demo will hold.
+**[https://albums.tennant.dev/a/86dTkGR5MJSX](https://albums.tennant.dev/a/86dTkGR5MJSX)** — a
+permanent public album. It does not expire, and it needs no account, no app and no cookie.
+
+Fourteen photographs, every one CC0. `docker compose up` gives you the same thing locally in about a
+minute, and `just seed` fills it with the same album.
 
 ## Quick start
 
@@ -99,7 +101,7 @@ to.
 | Offline download bundle | Done |
 | Scoped API tokens, `llms.txt`, OpenAPI, MCP | Done |
 | Marketing site and documentation | Published |
-| Public demo instance | Intended, no date |
+| Public demo instance | Live |
 | Android creator app (KMP + Compose), sideloaded | Done, 0.2.0 |
 | Library, and phone backup with optional sync | Done, 0.3.0 |
 | Hosted instance, plans and billing | Not scheduled |
