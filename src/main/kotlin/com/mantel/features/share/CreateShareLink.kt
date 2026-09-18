@@ -1,9 +1,10 @@
 package com.mantel.features.share
 
+import com.mantel.features.agent.Scope
 import com.mantel.features.album.AlbumStatus
 import com.mantel.features.album.Albums
 import com.mantel.features.album.albumIdFrom
-import com.mantel.features.album.requireOwnAlbum
+import com.mantel.features.album.demand
 import com.mantel.features.media.ItemState
 import com.mantel.features.media.MediaItems
 import com.mantel.kernel.Clock
@@ -59,11 +60,29 @@ suspend fun createShareLink(
     storage: ObjectStorage,
     clock: Clock = Clock.system,
 ) {
-    val album = requireOwnAlbum(call, albumIdFrom(call))
+    val caller = com.mantel.features.agent.requireScope(call, Scope.SHARE_WRITE)
     val request = call.receive<CreateShareLinkRequest>()
-    val pin = Pin.of(request.pin)
+    call.respond(
+        HttpStatusCode.Created,
+        createShareLinkFor(caller, albumIdFrom(call), request.pin, request.expiresInDays, config, storage, clock),
+    )
+}
 
-    request.expiresInDays?.let {
+/** The command. The route above and the MCP tool both call this and nothing else. */
+suspend fun createShareLinkFor(
+    caller: com.mantel.features.agent.Caller,
+    albumIdValue: com.mantel.features.album.AlbumId,
+    rawPin: String?,
+    expiresInDays: Int?,
+    config: Config,
+    storage: ObjectStorage,
+    clock: Clock = Clock.system,
+): ShareLinkView {
+    val album =
+        com.mantel.features.album.requireOwnAlbumFor(caller.demand(Scope.SHARE_WRITE), albumIdValue)
+    val pin = Pin.of(rawPin)
+
+    expiresInDays?.let {
         if (it !in ALLOWED_EXPIRY_DAYS) {
             throw DomainException(
                 ErrorCode.VALIDATION_FAILED,
@@ -84,7 +103,7 @@ suspend fun createShareLink(
                 it[albumId] = album[Albums.id]
                 it[ShareLinks.token] = token
                 it[pinHash] = pin?.let { value -> PinHash.hash(value) }
-                it[expiresAt] = request.expiresInDays?.let { days -> now.plusDays(days.toLong()) }
+                it[expiresAt] = expiresInDays?.let { days -> now.plusDays(days.toLong()) }
                 it[createdAt] = now
             }
             // The album is published the moment a live link exists.
@@ -102,17 +121,14 @@ suspend fun createShareLink(
         }
     }
 
-    call.respond(
-        HttpStatusCode.Created,
-        ShareLinkView(
-            id = id.toString(),
-            url = "${config.publicBaseUrl}/a/$token",
-            token = token.value,
-            hasPin = pin != null,
-            expiresAt = request.expiresInDays?.let { now.plusDays(it.toLong()).toInstant().toString() },
-            createdAt = now.toInstant().toString(),
-            live = true,
-        ),
+    return ShareLinkView(
+        id = id.toString(),
+        url = "${config.publicBaseUrl}/a/$token",
+        token = token.value,
+        hasPin = pin != null,
+        expiresAt = expiresInDays?.let { now.plusDays(it.toLong()).toInstant().toString() },
+        createdAt = now.toInstant().toString(),
+        live = true,
     )
 }
 

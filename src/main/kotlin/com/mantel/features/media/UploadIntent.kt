@@ -5,7 +5,7 @@ import com.mantel.features.account.mediaPrefixFor
 import com.mantel.features.account.quota
 import com.mantel.features.album.Albums
 import com.mantel.features.album.albumIdFrom
-import com.mantel.features.album.requireOwnAlbum
+import com.mantel.features.album.demand
 import com.mantel.kernel.Bytes
 import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
@@ -84,10 +84,28 @@ suspend fun createUploadIntent(
     storage: ObjectStorage,
     clock: Clock = Clock.system,
 ) {
-    val album = requireOwnAlbum(call, albumIdFrom(call))
+    val caller = com.mantel.features.agent.requireScope(call, com.mantel.features.agent.Scope.ALBUMS_WRITE)
+    val request = call.receive<UploadIntentRequest>()
+    call.respond(uploadIntentFor(caller, albumIdFrom(call), request.files, config, storage, clock))
+}
+
+/** The command. The route above and the MCP tool both call this and nothing else. */
+suspend fun uploadIntentFor(
+    caller: com.mantel.features.agent.Caller,
+    albumIdValue: com.mantel.features.album.AlbumId,
+    files: List<DeclaredFile>,
+    config: Config,
+    storage: ObjectStorage,
+    clock: Clock = Clock.system,
+): UploadIntentResponse {
+    val album =
+        com.mantel.features.album.requireOwnAlbumFor(
+            caller.demand(com.mantel.features.agent.Scope.ALBUMS_WRITE),
+            albumIdValue,
+        )
     val albumId = album[Albums.id]
     val accountId = album[Albums.accountId]
-    val request = call.receive<UploadIntentRequest>()
+    val request = UploadIntentRequest(files)
 
     if (request.files.isEmpty()) throw DomainException(ErrorCode.VALIDATION_FAILED, "No files declared")
     if (request.files.size > MAX_BATCH) {
@@ -206,5 +224,5 @@ suspend fun createUploadIntent(
             }
         }
 
-    call.respond(UploadIntentResponse(presigned, PRESIGN_LIFETIME.seconds))
+    return UploadIntentResponse(presigned, PRESIGN_LIFETIME.seconds)
 }

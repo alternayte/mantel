@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { api } from '../api'
 import { Button, Card, Dialog, Input, Meter } from '../components/ui'
+import { ApiTokens } from '../features/ApiTokens'
 
 /** Export and deletion are product promises, so they are on the page rather than in a support email. */
 export function Settings({ onBack, onSignedOut }: { onBack: () => void; onSignedOut: () => void }) {
@@ -38,6 +39,8 @@ export function Settings({ onBack, onSignedOut }: { onBack: () => void; onSigned
           </Button>
         </div>
       </Card>
+
+      <ApiTokens />
 
       <Card className="flex flex-col gap-2">
         <h2 className="m-0 text-sm font-medium text-ink">Delete this account</h2>

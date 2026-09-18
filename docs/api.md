@@ -27,6 +27,47 @@ The code set is closed. Adding a code is an API change.
 
 ## Authentication
 
+Two ways in. A person signs in and gets a session cookie. An agent presents an API token as
+`Authorization: Bearer mantel_…`.
+
+### Scopes
+
+| Scope | Allows |
+|---|---|
+| `albums:read` | List albums, read one with its items |
+| `albums:write` | Create and change albums, upload, caption, reorder, delete |
+| `share:write` | List, create and revoke share links |
+
+No scope reads another account: another account's album is `not_found`, exactly as it is for a
+person. `albums:read` does not list share links, because a link is what gives an album away.
+
+Three things need a signed-in person rather than a token: creating a token, exporting the account
+and deleting it. A token that can mint a token cannot be scoped.
+
+`TokenScopeTest` is the proof.
+
+### `GET /api/tokens`, `POST /api/tokens`, `DELETE /api/tokens/{id}`
+
+A token is shown once, at creation, and stored as a hash. Revocation is immediate.
+
+```json
+{ "name": "holiday agent", "scopes": ["albums:read", "albums:write", "share:write"] }
+```
+
+## The agent surface
+
+- `GET /llms.txt` — the entry point: what this is, how to get in, the shape of the work, the closed
+  error-code set, and where the documents are.
+- `GET /openapi.json` — OpenAPI 3.1. Its state enums are generated from the same Kotlin enums the
+  API uses, so it cannot disagree with the code, and `checks/after-build/openapi.sh` fails the build
+  when a public route is missing from it.
+- `POST /mcp` — an MCP server in the same binary, JSON-RPC over POST, presenting the same bearer
+  token. Ten tools: `list_albums`, `create_album`, `get_album`, `request_upload`, `complete_upload`,
+  `set_caption`, `reorder_items`, `publish_album`, `create_share_link`, `revoke_share_link`.
+
+Every tool is one call of a command the REST routes call too, with the same scope check. There is no
+agent-only path through this product.
+
 A creator session is an HttpOnly, SameSite=Lax cookie named `mantel_session`, set only by a
 sign-in. It is `Secure` when the request arrives over HTTPS. Viewer routes set no cookie unless a
 share link has a PIN and the viewer unlocks it (M5).

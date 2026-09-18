@@ -3,6 +3,12 @@ package com.mantel.http
 import com.mantel.features.account.deleteAccount
 import com.mantel.features.account.exportAccount
 import com.mantel.features.account.getMe
+import com.mantel.features.agent.createToken
+import com.mantel.features.agent.listTokens
+import com.mantel.features.agent.llmsTxt
+import com.mantel.features.agent.openApiDocument
+import com.mantel.features.agent.revokeToken
+import com.mantel.features.agent.serveMcp
 import com.mantel.features.album.archiveAlbum
 import com.mantel.features.album.createAlbum
 import com.mantel.features.album.getAlbum
@@ -133,6 +139,13 @@ fun Application.module(services: Services) {
         }
 
         get("/api/auth/methods") { getSignInMethods(call, services.config) }
+
+        // The agent surface: the same API, the same scopes, in the same binary (SDD.md 9).
+        post("/mcp") { serveMcp(call, services.config, services.storage, services.clock) }
+        get("/llms.txt") { call.respondText(ContentType.Text.Plain, HttpStatusCode.OK) { llmsTxt(services.config) } }
+        get("/openapi.json") {
+            call.respondText(ContentType.Application.Json, HttpStatusCode.OK) { openApiDocument(services.config) }
+        }
         get("/api/me") { getMe(call) }
 
         get("/api/albums") { listAlbums(call) }
@@ -197,6 +210,10 @@ fun Application.module(services: Services) {
         post("/api/worker/bundles/{bundleId}/built") { reportBundleBuilt(call, services.config, services.clock) }
         post("/api/worker/bundles/{bundleId}/failure") { reportBundleFailure(call, services.config, services.clock) }
         post("/api/worker/bundles/{bundleId}/heartbeat") { heartbeatBundle(call, services.config, services.clock) }
+
+        get("/api/tokens") { listTokens(call, services.clock) }
+        post("/api/tokens") { createToken(call, services.clock) }
+        delete("/api/tokens/{id}") { revokeToken(call, services.clock) }
 
         get("/api/account/export") { exportAccount(call) }
         delete("/api/account") { deleteAccount(call, services.storage) }

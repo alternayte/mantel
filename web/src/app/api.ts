@@ -79,6 +79,16 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body as T
 }
 
+export type ApiTokenView = {
+  id: string
+  name: string
+  scopes: string[]
+  createdAt: string
+  lastUsedAt?: string | null
+  revokedAt?: string | null
+  token?: string | null
+}
+
 export const api = {
   me: () => call<Me>('/me'),
   signInMethods: () => call<{ magicLink: boolean; github: boolean }>('/auth/methods'),
@@ -120,6 +130,11 @@ export const api = {
   createShareLink: (albumId: string, options: { pin?: string; expiresInDays?: number }) =>
     call<ShareLink>(`/albums/${albumId}/share-links`, { method: 'POST', body: JSON.stringify(options) }),
   revokeShareLink: (id: string) => call<void>(`/share-links/${id}`, { method: 'DELETE' }),
+
+  tokens: () => call<ApiTokenView[]>('/tokens'),
+  createApiToken: (name: string, scopes: string[]) =>
+    call<ApiTokenView>('/tokens', { method: 'POST', body: JSON.stringify({ name, scopes }) }),
+  revokeApiToken: (id: string) => call<void>(`/tokens/${id}`, { method: 'DELETE' }),
 
   deleteAccount: () => call<void>('/account', { method: 'DELETE' }),
 }

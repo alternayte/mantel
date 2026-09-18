@@ -4,6 +4,7 @@ import com.mantel.features.account.Accounts
 import com.mantel.features.account.quota
 import com.mantel.features.album.Albums
 import com.mantel.features.album.albumIdFrom
+import com.mantel.features.album.demand
 import com.mantel.features.album.itemIdFrom
 import com.mantel.features.album.requireOwnAlbum
 import com.mantel.kernel.Clock
@@ -41,10 +42,27 @@ suspend fun reorderItems(
     call: ApplicationCall,
     clock: Clock = Clock.system,
 ) {
-    val album = requireOwnAlbum(call, albumIdFrom(call))
+    val caller = com.mantel.features.agent.requireScope(call, com.mantel.features.agent.Scope.ALBUMS_WRITE)
+    val body = call.receive<ReorderRequest>()
+    reorderItemsFor(caller, albumIdFrom(call), body.itemIds, clock)
+    call.respond(HttpStatusCode.NoContent)
+}
+
+/** The command. The route above and the MCP tool both call this and nothing else. */
+suspend fun reorderItemsFor(
+    caller: com.mantel.features.agent.Caller,
+    albumIdValue: com.mantel.features.album.AlbumId,
+    requestedIds: List<String>,
+    clock: Clock = Clock.system,
+) {
+    val album =
+        com.mantel.features.album.requireOwnAlbumFor(
+            caller.demand(com.mantel.features.agent.Scope.ALBUMS_WRITE),
+            albumIdValue,
+        )
     val albumId = album[Albums.id]
     val requested =
-        call.receive<ReorderRequest>().itemIds.map { raw ->
+        requestedIds.map { raw ->
             runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
                 ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "$raw is not an item id")
         }
@@ -65,16 +83,36 @@ suspend fun reorderItems(
         }
         Albums.update({ Albums.id eq albumId }) { it[updatedAt] = now }
     }
-    call.respond(HttpStatusCode.NoContent)
 }
 
 suspend fun setCaption(
     call: ApplicationCall,
     clock: Clock = Clock.system,
 ) {
-    val album = requireOwnAlbum(call, albumIdFrom(call))
-    val itemId = itemIdFrom(call)
-    val caption = Caption.of(call.receive<CaptionRequest>().caption)
+    val caller = com.mantel.features.agent.requireScope(call, com.mantel.features.agent.Scope.ALBUMS_WRITE)
+    val body = call.receive<CaptionRequest>()
+    setCaptionFor(caller, albumIdFrom(call), itemIdFrom(call).toString(), body.caption, clock)
+    call.respond(HttpStatusCode.NoContent)
+}
+
+/** The command. The route above and the MCP tool both call this and nothing else. */
+suspend fun setCaptionFor(
+    caller: com.mantel.features.agent.Caller,
+    albumIdValue: com.mantel.features.album.AlbumId,
+    rawItemId: String,
+    rawCaption: String?,
+    clock: Clock = Clock.system,
+) {
+    val album =
+        com.mantel.features.album.requireOwnAlbumFor(
+            caller.demand(com.mantel.features.agent.Scope.ALBUMS_WRITE),
+            albumIdValue,
+        )
+    val itemId =
+        runCatching { ItemId(UUID.fromString(rawItemId)) }.getOrElse {
+            throw DomainException(ErrorCode.NOT_FOUND, "No such item")
+        }
+    val caption = Caption.of(rawCaption)
 
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     val changed =
@@ -87,7 +125,6 @@ suspend fun setCaption(
             updated
         }
     if (changed == 0) throw DomainException(ErrorCode.NOT_FOUND, "No such item")
-    call.respond(HttpStatusCode.NoContent)
 }
 
 /**

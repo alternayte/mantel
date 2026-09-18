@@ -1,10 +1,12 @@
 package com.mantel.features.share
 
+import com.mantel.features.agent.Scope
+import com.mantel.features.agent.requireScope
 import com.mantel.features.album.AlbumStatus
 import com.mantel.features.album.Albums
 import com.mantel.features.album.albumIdFrom
+import com.mantel.features.album.demand
 import com.mantel.features.album.requireOwnAlbum
-import com.mantel.features.auth.requireAccountId
 import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
@@ -48,7 +50,7 @@ suspend fun listShareLinks(
     config: Config,
     clock: Clock = Clock.system,
 ) {
-    val album = requireOwnAlbum(call, albumIdFrom(call))
+    val album = requireOwnAlbum(call, albumIdFrom(call), Scope.SHARE_WRITE)
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     val links =
         db {
@@ -69,9 +71,21 @@ suspend fun revokeShareLink(
     storage: ObjectStorage,
     clock: Clock = Clock.system,
 ) {
-    val accountId = requireAccountId(call)
+    val caller = requireScope(call, Scope.SHARE_WRITE)
+    revokeShareLinkFor(caller, call.parameters["id"].orEmpty(), storage, clock)
+    call.respond(HttpStatusCode.NoContent)
+}
+
+/** The command. The route above and the MCP tool both call this and nothing else. */
+suspend fun revokeShareLinkFor(
+    caller: com.mantel.features.agent.Caller,
+    rawLinkId: String,
+    storage: ObjectStorage,
+    clock: Clock = Clock.system,
+) {
+    val accountId = caller.demand(Scope.SHARE_WRITE).accountId
     val linkId =
-        call.parameters["id"]?.let { runCatching { ShareLinkId(UUID.fromString(it)) }.getOrNull() }
+        runCatching { ShareLinkId(UUID.fromString(rawLinkId)) }.getOrNull()
             ?: throw DomainException(ErrorCode.NOT_FOUND, "No such share link")
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
 
@@ -108,6 +122,4 @@ suspend fun revokeShareLink(
 
     // The preview image is public, so it has to go when the link does.
     withContext(Dispatchers.IO) { runCatching { storage.delete(listOf(ogKeyFor(token))) } }
-
-    call.respond(HttpStatusCode.NoContent)
 }

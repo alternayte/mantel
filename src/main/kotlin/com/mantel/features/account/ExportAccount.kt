@@ -1,6 +1,6 @@
 package com.mantel.features.account
 
-import com.mantel.features.auth.requireAccountId
+import com.mantel.features.agent.requirePerson
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
 import com.mantel.kernel.db
@@ -27,7 +27,7 @@ data class AccountExport(
 )
 
 suspend fun exportAccount(call: ApplicationCall) {
-    val accountId = requireAccountId(call)
+    val accountId = requirePerson(call)
     val export =
         db {
             Accounts.selectAll().where { Accounts.id eq accountId }.singleOrNull()?.let {

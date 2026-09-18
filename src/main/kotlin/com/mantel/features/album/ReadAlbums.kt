@@ -1,6 +1,8 @@
 package com.mantel.features.album
 
-import com.mantel.features.auth.requireAccountId
+import com.mantel.features.agent.Caller
+import com.mantel.features.agent.Scope
+import com.mantel.features.agent.requireScope
 import com.mantel.features.media.ItemState
 import com.mantel.features.media.MediaItems
 import com.mantel.kernel.db
@@ -82,22 +84,32 @@ fun ResultRow.toItemView(storage: ObjectStorage? = null) =
     )
 
 suspend fun listAlbums(call: ApplicationCall) {
-    val accountId = requireAccountId(call)
-    val albums =
-        db {
-            Albums.selectAll()
-                .where { (Albums.accountId eq accountId) and Albums.archivedAt.isNull() }
-                .orderBy(Albums.updatedAt, SortOrder.DESC)
-                .map { it.toSummary() }
-        }
-    call.respond(albums)
+    call.respond(listAlbumsFor(requireScope(call, Scope.ALBUMS_READ)))
+}
+
+suspend fun listAlbumsFor(caller: Caller): List<AlbumSummary> {
+    val accountId = caller.demand(Scope.ALBUMS_READ).accountId
+    return db {
+        Albums.selectAll()
+            .where { (Albums.accountId eq accountId) and Albums.archivedAt.isNull() }
+            .orderBy(Albums.updatedAt, SortOrder.DESC)
+            .map { it.toSummary() }
+    }
 }
 
 suspend fun getAlbum(
     call: ApplicationCall,
     storage: ObjectStorage,
 ) {
-    val album = requireOwnAlbum(call, albumIdFrom(call))
+    call.respond(readAlbumFor(requireScope(call, Scope.ALBUMS_READ), albumIdFrom(call), storage))
+}
+
+suspend fun readAlbumFor(
+    caller: Caller,
+    albumId: AlbumId,
+    storage: ObjectStorage,
+): AlbumView {
+    val album = requireOwnAlbumFor(caller.demand(Scope.ALBUMS_READ), albumId)
     val rows =
         db {
             MediaItems.selectAll()
@@ -107,19 +119,17 @@ suspend fun getAlbum(
         }
     val items = withContext(Dispatchers.IO) { rows.map { it.toItemView(storage) } }
     val summary = album.toSummary()
-    call.respond(
-        AlbumView(
-            id = summary.id,
-            title = summary.title,
-            description = summary.description,
-            status = summary.status,
-            itemCount = summary.itemCount,
-            totalBytes = summary.totalBytes,
-            coverItemId = summary.coverItemId,
-            createdAt = summary.createdAt,
-            updatedAt = summary.updatedAt,
-            items = items,
-        ),
+    return AlbumView(
+        id = summary.id,
+        title = summary.title,
+        description = summary.description,
+        status = summary.status,
+        itemCount = summary.itemCount,
+        totalBytes = summary.totalBytes,
+        coverItemId = summary.coverItemId,
+        createdAt = summary.createdAt,
+        updatedAt = summary.updatedAt,
+        items = items,
     )
 }
 
@@ -141,7 +151,7 @@ suspend fun getAlbumProgress(
     call: ApplicationCall,
     storage: ObjectStorage,
 ) {
-    val album = requireOwnAlbum(call, albumIdFrom(call))
+    val album = requireOwnAlbum(call, albumIdFrom(call), Scope.ALBUMS_READ)
     val rows =
         db {
             MediaItems.selectAll()

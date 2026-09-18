@@ -16,6 +16,7 @@ check:
     cd web && bun install && bun run build && bun test || fail=1
     cd ..
     bash checks/after-build/bundle.sh || fail=1
+    bash checks/after-build/openapi.sh || fail=1
     ./gradlew --console=plain ktlintCheck build || fail=1
     exit "$fail"
 

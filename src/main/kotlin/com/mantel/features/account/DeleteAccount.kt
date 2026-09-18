@@ -1,7 +1,7 @@
 package com.mantel.features.account
 
+import com.mantel.features.agent.requirePerson
 import com.mantel.features.album.Albums
-import com.mantel.features.auth.requireAccountId
 import com.mantel.features.auth.revokeSession
 import com.mantel.features.media.MediaItems
 import com.mantel.kernel.db
@@ -23,7 +23,7 @@ suspend fun deleteAccount(
     call: ApplicationCall,
     storage: ObjectStorage,
 ) {
-    val accountId = requireAccountId(call)
+    val accountId = requirePerson(call)
 
     // The rows name the objects, so they are read before anything is deleted.
     val prefixes =

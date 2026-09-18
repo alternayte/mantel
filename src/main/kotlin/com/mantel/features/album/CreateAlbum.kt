@@ -1,6 +1,8 @@
 package com.mantel.features.album
 
-import com.mantel.features.auth.requireAccountId
+import com.mantel.features.agent.Caller
+import com.mantel.features.agent.Scope
+import com.mantel.features.agent.requireScope
 import com.mantel.kernel.Bytes
 import com.mantel.kernel.Clock
 import com.mantel.kernel.Ids
@@ -34,8 +36,18 @@ suspend fun createAlbum(
     call: ApplicationCall,
     clock: Clock = Clock.system,
 ) {
-    val accountId = requireAccountId(call)
+    val caller = requireScope(call, Scope.ALBUMS_WRITE)
     val request = call.receive<CreateAlbumRequest>()
+    call.respond(HttpStatusCode.Created, createAlbumFor(caller, request, clock))
+}
+
+/** The command. The route above and the MCP tool both call this and nothing else. */
+suspend fun createAlbumFor(
+    caller: Caller,
+    request: CreateAlbumRequest,
+    clock: Clock = Clock.system,
+): AlbumSummary {
+    val accountId = caller.demand(Scope.ALBUMS_WRITE).accountId
     val title = AlbumTitle.of(request.title)
     val description = request.description?.trim()?.ifEmpty { null }
 
@@ -55,17 +67,14 @@ suspend fun createAlbum(
         }
     }
 
-    call.respond(
-        HttpStatusCode.Created,
-        AlbumSummary(
-            id = id.toString(),
-            title = title.value,
-            description = description,
-            status = AlbumStatus.DRAFT.wire,
-            itemCount = 0,
-            totalBytes = 0,
-            createdAt = now.toInstant().toString(),
-            updatedAt = now.toInstant().toString(),
-        ),
+    return AlbumSummary(
+        id = id.toString(),
+        title = title.value,
+        description = description,
+        status = AlbumStatus.DRAFT.wire,
+        itemCount = 0,
+        totalBytes = 0,
+        createdAt = now.toInstant().toString(),
+        updatedAt = now.toInstant().toString(),
     )
 }

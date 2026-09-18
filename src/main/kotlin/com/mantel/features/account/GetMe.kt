@@ -1,6 +1,6 @@
 package com.mantel.features.account
 
-import com.mantel.features.auth.requireAccountId
+import com.mantel.features.agent.requireCaller
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
 import com.mantel.kernel.db
@@ -18,7 +18,7 @@ data class Me(
 )
 
 suspend fun getMe(call: ApplicationCall) {
-    val accountId = requireAccountId(call)
+    val accountId = requireCaller(call).accountId
     val me =
         db {
             Accounts.selectAll().where { Accounts.id eq accountId }.singleOrNull()?.let {

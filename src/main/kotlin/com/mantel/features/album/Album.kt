@@ -2,7 +2,9 @@ package com.mantel.features.album
 
 import com.mantel.features.account.AccountId
 import com.mantel.features.account.Accounts
-import com.mantel.features.auth.requireAccountId
+import com.mantel.features.agent.Caller
+import com.mantel.features.agent.Scope
+import com.mantel.features.agent.requireScope
 import com.mantel.features.media.ItemId
 import com.mantel.kernel.Bytes
 import com.mantel.kernel.DomainException
@@ -85,14 +87,41 @@ object Albums : Table("album") {
 suspend fun requireOwnAlbum(
     call: ApplicationCall,
     albumId: AlbumId,
+    scope: Scope = Scope.ALBUMS_WRITE,
+): ResultRow = requireOwnAlbumFor(requireScope(call, scope), albumId)
+
+/**
+ * The same check for a caller that did not arrive over HTTP — an MCP tool call, which carries the
+ * same token and therefore the same scopes.
+ */
+suspend fun requireOwnAlbumFor(
+    caller: Caller,
+    albumId: AlbumId,
 ): ResultRow {
-    val accountId: AccountId = requireAccountId(call)
+    val accountId: AccountId = caller.accountId
     return db {
         Albums.selectAll()
             .where { (Albums.id eq albumId) and (Albums.accountId eq accountId) and Albums.archivedAt.isNull() }
             .singleOrNull()
     } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such album")
 }
+
+/** Scope, checked away from HTTP so a tool call cannot skip it. */
+fun Caller.demand(scope: Scope): Caller {
+    if (!allows(scope)) {
+        throw DomainException(
+            ErrorCode.FORBIDDEN,
+            "This token does not have ${scope.wire}",
+            mapOf("requiredScope" to scope.wire),
+        )
+    }
+    return this
+}
+
+fun albumIdOf(raw: String): AlbumId =
+    runCatching { AlbumId(UUID.fromString(raw)) }.getOrElse {
+        throw DomainException(ErrorCode.NOT_FOUND, "No such album")
+    }
 
 fun albumIdFrom(call: ApplicationCall): AlbumId =
     call.parameters["id"]?.let { runCatching { AlbumId(UUID.fromString(it)) }.getOrNull() }

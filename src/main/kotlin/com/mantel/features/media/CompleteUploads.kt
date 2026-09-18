@@ -2,7 +2,7 @@ package com.mantel.features.media
 
 import com.mantel.features.album.Albums
 import com.mantel.features.album.albumIdFrom
-import com.mantel.features.album.requireOwnAlbum
+import com.mantel.features.album.demand
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
 import com.mantel.kernel.db
@@ -35,11 +35,26 @@ suspend fun completeUploads(
     call: ApplicationCall,
     storage: ObjectStorage,
 ) {
-    val album = requireOwnAlbum(call, albumIdFrom(call))
-    val albumId = album[Albums.id]
+    val caller = com.mantel.features.agent.requireScope(call, com.mantel.features.agent.Scope.ALBUMS_WRITE)
     val request = call.receive<CompleteUploadsRequest>()
+    call.respond(completeUploadsFor(caller, albumIdFrom(call), request.itemIds, storage))
+}
+
+/** The command. The route above and the MCP tool both call this and nothing else. */
+suspend fun completeUploadsFor(
+    caller: com.mantel.features.agent.Caller,
+    albumIdValue: com.mantel.features.album.AlbumId,
+    requestedIds: List<String>,
+    storage: ObjectStorage,
+): CompleteUploadsResponse {
+    val album =
+        com.mantel.features.album.requireOwnAlbumFor(
+            caller.demand(com.mantel.features.agent.Scope.ALBUMS_WRITE),
+            albumIdValue,
+        )
+    val albumId = album[Albums.id]
     val itemIds =
-        request.itemIds.map { raw ->
+        requestedIds.map { raw ->
             runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
                 ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "$raw is not an item id")
         }
@@ -91,10 +106,8 @@ suspend fun completeUploads(
     }
 
     val uploaded = arrived.map { it.id }
-    call.respond(
-        CompleteUploadsResponse(
-            uploaded = uploaded.map { it.toString() },
-            missing = itemIds.filterNot { it in uploaded }.map { it.toString() },
-        ),
+    return CompleteUploadsResponse(
+        uploaded = uploaded.map { it.toString() },
+        missing = itemIds.filterNot { it in uploaded }.map { it.toString() },
     )
 }
