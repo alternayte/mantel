@@ -43,7 +43,7 @@ class UploadIntentTest {
             assertEquals(HttpStatusCode.OK, response.status)
 
             val intent = json.decodeFromString<UploadIntentResponse>(response.bodyAsText())
-            val url = intent.items.single().uploadUrl
+            val url = intent.items.single().uploadUrl!!
             assertTrue(url.startsWith("https://storage.test/"), url)
             assertTrue(!url.contains("/api/"), url)
         }
@@ -79,6 +79,7 @@ class UploadIntentTest {
                     "DELETE /api/albums/{id}",
                     "GET /api/albums/{id}/status",
                     "POST /api/albums/{id}/upload-intent",
+                    "GET /api/albums/{id}/items/{itemId}/upload-progress",
                     "POST /api/albums/{id}/uploads/complete",
                     "PATCH /api/albums/{id}/items/reorder",
                     "PATCH /api/albums/{id}/items/{itemId}",

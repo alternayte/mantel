@@ -6,19 +6,37 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.regions.Region
 import software.amazon.awssdk.services.s3.S3Client
 import software.amazon.awssdk.services.s3.S3Configuration
+import software.amazon.awssdk.services.s3.model.AbortIncompleteMultipartUpload
+import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest
+import software.amazon.awssdk.services.s3.model.BucketLifecycleConfiguration
+import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest
+import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload
+import software.amazon.awssdk.services.s3.model.CompletedPart
+import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest
 import software.amazon.awssdk.services.s3.model.DeleteObjectRequest
+import software.amazon.awssdk.services.s3.model.ExpirationStatus
 import software.amazon.awssdk.services.s3.model.GetObjectRequest
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest
+import software.amazon.awssdk.services.s3.model.LifecycleRule
+import software.amazon.awssdk.services.s3.model.LifecycleRuleFilter
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request
+import software.amazon.awssdk.services.s3.model.ListPartsRequest
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException
+import software.amazon.awssdk.services.s3.model.NoSuchUploadException
+import software.amazon.awssdk.services.s3.model.PutBucketLifecycleConfigurationRequest
 import software.amazon.awssdk.services.s3.model.PutObjectRequest
+import software.amazon.awssdk.services.s3.model.S3Exception
+import software.amazon.awssdk.services.s3.model.UploadPartRequest
 import software.amazon.awssdk.services.s3.presigner.S3Presigner
 import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest
+import software.amazon.awssdk.services.s3.presigner.model.UploadPartPresignRequest
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
 import java.time.Duration
+
+private val log = org.slf4j.LoggerFactory.getLogger("com.mantel.storage")
 
 class S3ObjectStorage(
     private val config: StorageConfig,
@@ -63,6 +81,120 @@ class S3ObjectStorage(
         return presigner.presignPutObject(
             PutObjectPresignRequest.builder().signatureDuration(expiresIn).putObjectRequest(put).build(),
         ).url().toString()
+    }
+
+    fun putLifecycleOrThrow(afterDays: Int) {
+        run {
+            client.putBucketLifecycleConfiguration(
+                PutBucketLifecycleConfigurationRequest.builder()
+                    .bucket(config.bucket)
+                    .lifecycleConfiguration(
+                        BucketLifecycleConfiguration.builder()
+                            .rules(
+                                LifecycleRule.builder()
+                                    .id("mantel-abort-incomplete-uploads")
+                                    .status(ExpirationStatus.ENABLED)
+                                    .filter(LifecycleRuleFilter.builder().prefix("").build())
+                                    .abortIncompleteMultipartUpload(
+                                        AbortIncompleteMultipartUpload.builder()
+                                            .daysAfterInitiation(afterDays)
+                                            .build(),
+                                    )
+                                    .build(),
+                            )
+                            .build(),
+                    )
+                    .build(),
+            )
+        }
+    }
+
+    override fun ensureIncompleteUploadsExpire(afterDays: Int) {
+        try {
+            putLifecycleOrThrow(afterDays)
+        } catch (refusal: S3Exception) {
+            log.warn(
+                "storage refused the lifecycle rule for incomplete uploads ({}). " +
+                    "Abandoned parts will bill until something else removes them.",
+                refusal.awsErrorDetails()?.errorCode(),
+            )
+        }
+    }
+
+    override fun startMultipartUpload(
+        key: String,
+        contentType: String,
+    ): String =
+        client.createMultipartUpload(
+            CreateMultipartUploadRequest.builder().bucket(config.bucket).key(key).contentType(contentType).build(),
+        ).uploadId()
+
+    override fun presignPart(
+        key: String,
+        uploadId: String,
+        partNumber: Int,
+        contentLength: Long,
+        expiresIn: Duration,
+    ): String {
+        val part =
+            UploadPartRequest.builder()
+                .bucket(config.bucket)
+                .key(key)
+                .uploadId(uploadId)
+                .partNumber(partNumber)
+                .contentLength(contentLength)
+                .build()
+        return presigner.presignUploadPart(
+            UploadPartPresignRequest.builder().signatureDuration(expiresIn).uploadPartRequest(part).build(),
+        ).url().toString()
+    }
+
+    override fun listParts(
+        key: String,
+        uploadId: String,
+    ): List<UploadedPart> =
+        try {
+            client.listParts(
+                ListPartsRequest.builder().bucket(config.bucket).key(key).uploadId(uploadId).build(),
+            ).parts().map { UploadedPart(it.partNumber(), it.eTag(), it.size()) }
+        } catch (_: NoSuchUploadException) {
+            emptyList()
+        }
+
+    override fun completeMultipartUpload(
+        key: String,
+        uploadId: String,
+        parts: List<UploadedPart>,
+    ) {
+        client.completeMultipartUpload(
+            CompleteMultipartUploadRequest.builder()
+                .bucket(config.bucket)
+                .key(key)
+                .uploadId(uploadId)
+                .multipartUpload(
+                    CompletedMultipartUpload.builder()
+                        .parts(
+                            parts.sortedBy { it.partNumber }.map {
+                                CompletedPart.builder().partNumber(it.partNumber).eTag(it.etag).build()
+                            },
+                        )
+                        .build(),
+                )
+                .build(),
+        )
+    }
+
+    override fun abortMultipartUpload(
+        key: String,
+        uploadId: String,
+    ) {
+        try {
+            client.abortMultipartUpload(
+                AbortMultipartUploadRequest.builder().bucket(config.bucket).key(key).uploadId(uploadId).build(),
+            )
+        } catch (_: NoSuchUploadException) {
+            // Already gone, by lifecycle rule or a previous abort.
+        }
     }
 
     override fun download(

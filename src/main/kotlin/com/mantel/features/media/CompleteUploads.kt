@@ -21,6 +21,8 @@ import java.util.UUID
 @Serializable
 data class CompleteUploadsRequest(val itemIds: List<String>)
 
+private data class PendingUpload(val id: ItemId, val key: String, val uploadId: String?, val declared: Long)
+
 @Serializable
 data class CompleteUploadsResponse(val uploaded: List<String>, val missing: List<String>)
 
@@ -51,23 +53,48 @@ suspend fun completeUploads(
                         (MediaItems.id inList itemIds) and
                         (MediaItems.status eq ItemState.PENDING_UPLOAD)
                 }
-                .associate { it[MediaItems.id] to it[MediaItems.originalKey] }
+                .map {
+                    PendingUpload(
+                        id = it[MediaItems.id],
+                        key = it[MediaItems.originalKey],
+                        uploadId = it[MediaItems.uploadId],
+                        declared = it[MediaItems.byteSize].value,
+                    )
+                }
         }
 
-    val arrived = withContext(Dispatchers.IO) { pending.filterValues { storage.sizeOf(it) != null } }
+    // A part upload is finished here rather than by the client, so the client never has to keep
+    // ETags. Storage lists what it holds, and an incomplete set stays pending and resumable.
+    val arrived =
+        withContext(Dispatchers.IO) {
+            pending.filter { item ->
+                if (item.uploadId == null) {
+                    storage.sizeOf(item.key) != null
+                } else {
+                    val parts = storage.listParts(item.key, item.uploadId)
+                    val complete = parts.sumOf { it.sizeBytes } == item.declared
+                    if (complete) {
+                        storage.completeMultipartUpload(item.key, item.uploadId, parts)
+                    }
+                    complete && storage.sizeOf(item.key) != null
+                }
+            }
+        }
 
     db {
-        arrived.keys.forEach { itemId ->
-            MediaItems.update({ MediaItems.id eq itemId }) {
+        arrived.forEach { item ->
+            MediaItems.update({ MediaItems.id eq item.id }) {
                 it[status] = transition(ItemState.PENDING_UPLOAD, ItemEvent.UploadObserved)
+                it[uploadId] = null
             }
         }
     }
 
+    val uploaded = arrived.map { it.id }
     call.respond(
         CompleteUploadsResponse(
-            uploaded = arrived.keys.map { it.toString() },
-            missing = itemIds.filterNot { it in arrived.keys }.map { it.toString() },
+            uploaded = uploaded.map { it.toString() },
+            missing = itemIds.filterNot { it in uploaded }.map { it.toString() },
         ),
     )
 }

@@ -8,6 +8,7 @@ import com.mantel.features.album.albumIdFrom
 import com.mantel.features.album.requireOwnAlbum
 import com.mantel.kernel.Bytes
 import com.mantel.kernel.Clock
+import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
 import com.mantel.kernel.Ids
@@ -37,13 +38,32 @@ data class DeclaredFile(val filename: String, val contentType: String, val sizeB
 data class UploadIntentResponse(val items: List<PresignedUpload>, val expiresInSeconds: Long)
 
 @Serializable
+data class PresignedPart(val partNumber: Int, val uploadUrl: String, val sizeBytes: Long)
+
+/**
+ * One presigned PUT for a small file, or a part list for a large one. A client that meets `parts`
+ * uploads each separately and may retry any of them alone.
+ */
+@Serializable
 data class PresignedUpload(
     val itemId: String,
     val filename: String,
-    val uploadUrl: String,
     val contentType: String,
     val sizeBytes: Long,
+    val uploadUrl: String? = null,
+    val uploadId: String? = null,
+    val parts: List<PresignedPart>? = null,
 )
+
+/** The part boundaries for a file, all full except the last. */
+fun partsFor(
+    total: Long,
+    partSize: Long,
+): List<Long> {
+    val whole = total / partSize
+    val remainder = total % partSize
+    return List(whole.toInt()) { partSize } + if (remainder > 0) listOf(remainder) else emptyList()
+}
 
 private val PRESIGN_LIFETIME: Duration = Duration.ofHours(1)
 private const val MAX_BATCH = 200
@@ -60,6 +80,7 @@ private data class Reserved(val id: ItemId, val key: String, val file: DeclaredF
  */
 suspend fun createUploadIntent(
     call: ApplicationCall,
+    config: Config,
     storage: ObjectStorage,
     clock: Clock = Clock.system,
 ) {
@@ -149,14 +170,38 @@ suspend fun createUploadIntent(
     val presigned =
         withContext(Dispatchers.IO) {
             reserved.map { item ->
-                PresignedUpload(
-                    itemId = item.id.toString(),
-                    filename = item.file.filename,
-                    uploadUrl =
-                        storage.presignPut(item.key, item.file.contentType, item.file.sizeBytes, PRESIGN_LIFETIME),
-                    contentType = item.file.contentType,
-                    sizeBytes = item.file.sizeBytes,
-                )
+                if (item.file.sizeBytes <= config.storage.multipartThreshold.value) {
+                    PresignedUpload(
+                        itemId = item.id.toString(),
+                        filename = item.file.filename,
+                        contentType = item.file.contentType,
+                        sizeBytes = item.file.sizeBytes,
+                        uploadUrl =
+                            storage.presignPut(item.key, item.file.contentType, item.file.sizeBytes, PRESIGN_LIFETIME),
+                    )
+                } else {
+                    val uploadId = storage.startMultipartUpload(item.key, item.file.contentType)
+                    val sizes = partsFor(item.file.sizeBytes, config.storage.partSize.value)
+                    val parts =
+                        sizes.mapIndexed { index, size ->
+                            PresignedPart(
+                                partNumber = index + 1,
+                                uploadUrl = storage.presignPart(item.key, uploadId, index + 1, size, PRESIGN_LIFETIME),
+                                sizeBytes = size,
+                            )
+                        }
+                    db {
+                        MediaItems.update({ MediaItems.id eq item.id }) { it[MediaItems.uploadId] = uploadId }
+                    }
+                    PresignedUpload(
+                        itemId = item.id.toString(),
+                        filename = item.file.filename,
+                        contentType = item.file.contentType,
+                        sizeBytes = item.file.sizeBytes,
+                        uploadId = uploadId,
+                        parts = parts,
+                    )
+                }
             }
         }
 

@@ -37,6 +37,11 @@ data class Config(
                         accessKeyId = env("MANTEL_S3_ACCESS_KEY_ID") ?: "mantel",
                         secretAccessKey = env("MANTEL_S3_SECRET_ACCESS_KEY") ?: "mantel-development",
                         forcePathStyle = env("MANTEL_S3_FORCE_PATH_STYLE")?.toBoolean() ?: true,
+                        // Above this a file uploads in parts, so a dropped connection costs one
+                        // part rather than the whole file. Below it, one PUT and one round trip.
+                        multipartThreshold =
+                            Bytes(env("MANTEL_MULTIPART_THRESHOLD_BYTES")?.toLong() ?: (64L * 1024 * 1024)),
+                        partSize = Bytes(env("MANTEL_MULTIPART_PART_BYTES")?.toLong() ?: (16L * 1024 * 1024)),
                     ),
                 // No SMTP host: magic links go to the log, which is what local work reads.
                 smtp =
@@ -85,7 +90,14 @@ data class StorageConfig(
     val accessKeyId: String,
     val secretAccessKey: String,
     val forcePathStyle: Boolean,
-)
+    val multipartThreshold: Bytes,
+    val partSize: Bytes,
+) {
+    init {
+        // S3 refuses any part but the last below 5 MiB, so a smaller part size cannot be uploaded.
+        require(partSize.value >= 5L * 1024 * 1024) { "a part is at least 5 MiB" }
+    }
+}
 
 data class SmtpConfig(
     val host: String,

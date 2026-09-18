@@ -77,6 +77,8 @@ class RecordingStorage : ObjectStorage {
     val deletedPrefixes = mutableListOf<String>()
     val presigns = mutableListOf<Presign>()
     val uploaded = mutableListOf<Pair<String, String>>()
+    val aborted = mutableListOf<String>()
+    var lifecycleDays: Int? = null
 
     override fun presignPut(
         key: String,
@@ -89,6 +91,64 @@ class RecordingStorage : ObjectStorage {
     }
 
     override fun sizeOf(key: String): Long? = objects[key]?.size?.toLong()
+
+    // Multipart in memory: enough for the tests that only need an upload id to exist. The real
+    // behaviour is proved against MinIO in S3ObjectStorageTest and ResumableUploadTest.
+    private val multipart = mutableMapOf<String, MutableList<com.mantel.storage.UploadedPart>>()
+
+    override fun ensureIncompleteUploadsExpire(afterDays: Int) {
+        lifecycleDays = afterDays
+    }
+
+    override fun startMultipartUpload(
+        key: String,
+        contentType: String,
+    ): String {
+        val uploadId = "upload-${multipart.size + 1}"
+        multipart["$key/$uploadId"] = mutableListOf()
+        return uploadId
+    }
+
+    override fun presignPart(
+        key: String,
+        uploadId: String,
+        partNumber: Int,
+        contentLength: Long,
+        expiresIn: Duration,
+    ): String = "https://storage.test/$key?uploadId=$uploadId&partNumber=$partNumber&length=$contentLength"
+
+    override fun listParts(
+        key: String,
+        uploadId: String,
+    ): List<com.mantel.storage.UploadedPart> = multipart["$key/$uploadId"].orEmpty()
+
+    override fun completeMultipartUpload(
+        key: String,
+        uploadId: String,
+        parts: List<com.mantel.storage.UploadedPart>,
+    ) {
+        objects[key] = ByteArray(parts.sumOf { it.sizeBytes }.toInt())
+        multipart.remove("$key/$uploadId")
+    }
+
+    override fun abortMultipartUpload(
+        key: String,
+        uploadId: String,
+    ) {
+        aborted += uploadId
+        multipart.remove("$key/$uploadId")
+    }
+
+    /** Test-only: pretend a part arrived at storage. */
+    fun receivePart(
+        key: String,
+        uploadId: String,
+        partNumber: Int,
+        sizeBytes: Long,
+    ) {
+        multipart.getOrPut("$key/$uploadId") { mutableListOf() }
+            .add(com.mantel.storage.UploadedPart(partNumber, "etag-$partNumber", sizeBytes))
+    }
 
     override fun download(
         key: String,
@@ -127,32 +187,37 @@ class MutableClock(private var instant: java.time.Instant = java.time.Instant.pa
     }
 }
 
-fun testConfig(github: GitHubConfig? = null) =
-    Config(
-        port = 0,
-        publicBaseUrl = "http://localhost",
-        defaultQuota = Bytes(10L * 1024 * 1024 * 1024),
-        database = TestDatabase.config,
-        storage =
-            StorageConfig(
+fun testConfig(
+    github: GitHubConfig? = null,
+    storage: StorageConfig? = null,
+) = Config(
+    port = 0,
+    publicBaseUrl = "http://localhost",
+    defaultQuota = Bytes(10L * 1024 * 1024 * 1024),
+    database = TestDatabase.config,
+    storage =
+        storage
+            ?: StorageConfig(
                 endpoint = "http://storage.test",
                 region = "auto",
                 bucket = "mantel",
                 accessKeyId = "test",
                 secretAccessKey = "test",
                 forcePathStyle = true,
+                multipartThreshold = Bytes(64L * 1024 * 1024),
+                partSize = Bytes(16L * 1024 * 1024),
             ),
-        smtp = null,
-        github = github,
-        worker =
-            WorkerConfig(
-                token = TEST_WORKER_TOKEN,
-                claimTimeout = Duration.ofMinutes(10),
-                maxAttempts = 3,
-                batchSize = 4,
-                pollInterval = Duration.ofSeconds(1),
-            ),
-    )
+    smtp = null,
+    github = github,
+    worker =
+        WorkerConfig(
+            token = TEST_WORKER_TOKEN,
+            claimTimeout = Duration.ofMinutes(10),
+            maxAttempts = 3,
+            batchSize = 4,
+            pollInterval = Duration.ofSeconds(1),
+        ),
+)
 
 class Harness(
     val mailer: RecordingMailer,
@@ -171,6 +236,8 @@ fun withApp(
     github: GitHubConfig? = null,
     githubResponder: MockEngine? = null,
     clock: MutableClock = MutableClock(),
+    storage: ObjectStorage? = null,
+    storageConfig: StorageConfig? = null,
     block: suspend ApplicationTestBuilder.(Harness) -> Unit,
 ) {
     TestDatabase.truncate()
@@ -193,9 +260,9 @@ fun withApp(
             harness.application = this
             module(
                 Services(
-                    config = testConfig(github),
+                    config = testConfig(github, storageConfig),
                     clock = clock,
-                    storage = harness.storage,
+                    storage = storage ?: harness.storage,
                     mailer = harness.mailer,
                     httpClient = client,
                 ),

@@ -164,6 +164,42 @@ Accepted types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/he
 Each URL is signed for exactly that length and content type. Uploading anything else is refused by
 the storage provider, so the declared size is enforced rather than trusted.
 
+**A file above `MANTEL_MULTIPART_THRESHOLD_BYTES` (64 MiB by default) uploads in parts instead.**
+That item carries `uploadId` and `parts` in place of `uploadUrl`:
+
+```json
+{
+  "itemId": "…",
+  "filename": "clip.mp4",
+  "contentType": "video/mp4",
+  "sizeBytes": 104857600,
+  "uploadId": "…",
+  "parts": [
+    { "partNumber": 1, "uploadUrl": "https://storage.example/…", "sizeBytes": 16777216 }
+  ]
+}
+```
+
+Each part is a separate PUT and can be retried alone. The client keeps no ETags: completion reads
+what storage holds.
+
+### `GET /api/albums/{id}/items/{itemId}/upload-progress`
+
+For an interrupted part upload: what storage already has, and fresh URLs for what it does not.
+
+```json
+{
+  "itemId": "…",
+  "uploadId": "…",
+  "sizeBytes": 104857600,
+  "received": [ { "partNumber": 1, "etag": "…", "sizeBytes": 16777216 } ],
+  "remaining": [ { "partNumber": 2, "uploadUrl": "…", "sizeBytes": 16777216 } ]
+}
+```
+
+Storage is the source of truth, so a client that lost its page, its connection or its laptop sends
+only what is missing. `conflict` if the upload was a single PUT or has already finished.
+
 ### `POST /api/albums/{id}/uploads/complete`
 
 ```json
@@ -173,6 +209,10 @@ the storage provider, so the declared size is enforced rather than trusted.
 One call for the whole batch. Storage is asked whether each object actually arrived; those that did
 become `uploaded` and enter the processing queue, and the rest come back under `missing` and stay
 `pending_upload`.
+
+A part upload is finalised here: the API lists the parts storage holds and, when they add up to the
+declared size, completes the upload with the provider. An incomplete set stays `pending_upload` and
+remains resumable.
 
 ```json
 { "uploaded": ["…"], "missing": ["…"] }

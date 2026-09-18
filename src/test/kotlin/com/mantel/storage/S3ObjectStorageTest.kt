@@ -1,5 +1,6 @@
 package com.mantel.storage
 
+import com.mantel.kernel.Bytes
 import com.mantel.kernel.StorageConfig
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
@@ -48,6 +49,8 @@ class S3ObjectStorageTest {
             accessKeyId = minio.userName,
             secretAccessKey = minio.password,
             forcePathStyle = true,
+            multipartThreshold = Bytes(64L * 1024 * 1024),
+            partSize = Bytes(5L * 1024 * 1024),
         )
 
     private fun client(config: StorageConfig): S3Client =
@@ -89,6 +92,31 @@ class S3ObjectStorageTest {
         assertNotEquals(200, put("12345", contentType = "application/pdf"))
         assertEquals(200, put("12345"))
         assertEquals(5L, S3ObjectStorage(config).use { it.sizeOf(key) })
+    }
+
+    @Test
+    fun `asking for the expiry rule never breaks startup, and an abort takes the parts now`() {
+        val config = config()
+        val s3 = client(config)
+        runCatching { s3.createBucket(CreateBucketRequest.builder().bucket(config.bucket).build()) }
+
+        S3ObjectStorage(config).use { storage ->
+            // Asking for the rule never breaks startup, whatever the provider answers. This MinIO
+            // release refuses it (it wants a Content-Md5 the SDK no longer sends), which is exactly
+            // the case the warning path exists for; docs/operations/storage.md has the manual rule.
+            storage.ensureIncompleteUploadsExpire(afterDays = 1)
+
+            // An abandoned upload holds bytes that no listing shows, so aborting must really remove
+            // the parts rather than leaving them to the rule.
+            val key = "accounts/44444444-4444-4444-4444-444444444444/albums/a/i/original.mp4"
+            val uploadId = storage.startMultipartUpload(key, "video/mp4")
+            assertEquals(emptyList<Int>(), storage.listParts(key, uploadId).map { it.partNumber })
+
+            storage.abortMultipartUpload(key, uploadId)
+            assertEquals(emptyList<Int>(), storage.listParts(key, uploadId).map { it.partNumber })
+            // Aborting twice is not an error: the lifecycle rule may have gone first.
+            storage.abortMultipartUpload(key, uploadId)
+        }
     }
 
     @Test

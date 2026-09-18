@@ -111,7 +111,11 @@ suspend fun deleteItem(
         } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
 
     val prefix = item[MediaItems.originalKey].substringBeforeLast('/') + "/"
-    withContext(Dispatchers.IO) { storage.deletePrefix(prefix) }
+    withContext(Dispatchers.IO) {
+        // An unfinished multipart upload holds bytes that no listing shows and no row points at.
+        item[MediaItems.uploadId]?.let { storage.abortMultipartUpload(item[MediaItems.originalKey], it) }
+        storage.deletePrefix(prefix)
+    }
 
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     db {

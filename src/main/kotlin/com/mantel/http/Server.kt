@@ -18,6 +18,7 @@ import com.mantel.features.media.claimWork
 import com.mantel.features.media.completeUploads
 import com.mantel.features.media.createUploadIntent
 import com.mantel.features.media.deleteItem
+import com.mantel.features.media.getUploadProgress
 import com.mantel.features.media.reorderItems
 import com.mantel.features.media.reportDerivatives
 import com.mantel.features.media.reportFailure
@@ -119,7 +120,12 @@ fun Application.module(services: Services) {
         delete("/api/albums/{id}") { archiveAlbum(call) }
         get("/api/albums/{id}/status") { getAlbumProgress(call) }
 
-        post("/api/albums/{id}/upload-intent") { createUploadIntent(call, services.storage) }
+        post("/api/albums/{id}/upload-intent") {
+            createUploadIntent(call, services.config, services.storage, services.clock)
+        }
+        get("/api/albums/{id}/items/{itemId}/upload-progress") {
+            getUploadProgress(call, services.config, services.storage)
+        }
         post("/api/albums/{id}/uploads/complete") { completeUploads(call, services.storage) }
         patch("/api/albums/{id}/items/reorder") { reorderItems(call) }
         patch("/api/albums/{id}/items/{itemId}") { setCaption(call) }

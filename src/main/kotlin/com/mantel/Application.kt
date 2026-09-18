@@ -25,6 +25,8 @@ fun main(args: Array<String>) {
             val dataSource = Schema.dataSource(config.database)
             Schema.migrate(dataSource)
             Schema.connect(dataSource)
+            val storage = S3ObjectStorage(config.storage)
+            storage.ensureIncompleteUploadsExpire(afterDays = 1)
             val httpClient =
                 HttpClient {
                     install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
@@ -32,7 +34,7 @@ fun main(args: Array<String>) {
             startServer(
                 Services(
                     config = config,
-                    storage = S3ObjectStorage(config.storage),
+                    storage = storage,
                     mailer = mailerFor(config.smtp),
                     httpClient = httpClient,
                 ),
