@@ -97,8 +97,9 @@ to.
 | Photo and video processing, EXIF stripping | Done |
 | Offline download bundle | Done |
 | Scoped API tokens, `llms.txt`, OpenAPI, MCP | Done |
-| Public demo instance and marketing site | Intended, no date |
-| Android creator app (KMP + Compose) | v1.1 |
+| Marketing site and documentation | Published |
+| Public demo instance | Intended, no date |
+| Android creator app (KMP + Compose) | 0.2.0 |
 | iOS | Not planned |
 | HLS adaptive streaming | Not scheduled |
 | Family spaces, face recognition, guest upload, vanity slugs | Not scheduled |

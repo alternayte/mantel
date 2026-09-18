@@ -64,6 +64,12 @@ tasks.named<com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar>("shadowJ
     mergeServiceFiles()
 }
 
+// The version reaches the running app from one place. An OpenAPI document that names a version the
+// build does not is the same class of drift as an enum typed out by hand.
+tasks.processResources {
+    filesMatching("version.properties") { expand("version" to project.version.toString()) }
+}
+
 tasks.test {
     useJUnitPlatform()
     testLogging {

@@ -72,7 +72,7 @@ fun openApiDocument(config: Config): String =
       "openapi": "3.1.0",
       "info": {
         "title": "Mantel",
-        "version": "1.0.0",
+        "version": "${com.mantel.kernel.Version.current}",
         "description": "Photo and video albums shared as a link. The same API the web client uses.",
         "license": { "name": "AGPL-3.0-or-later" }
       },

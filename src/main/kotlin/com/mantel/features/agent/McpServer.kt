@@ -57,7 +57,7 @@ suspend fun serveMcp(
                     putJsonObject("capabilities") { putJsonObject("tools") {} }
                     putJsonObject("serverInfo") {
                         put("name", "mantel")
-                        put("version", "1")
+                        put("version", com.mantel.kernel.Version.current)
                     }
                     put(
                         "instructions",

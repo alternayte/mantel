@@ -1,6 +1,6 @@
 # API
 
-The REST API is the product surface. The web client, the Android client (v1.1) and agents all use
+The REST API is the product surface. The web client, the Android client and agents all use
 this one API. `code` in an error is contract; `message` is for humans and may change.
 
 The OpenAPI document arrives at M9. Until then this file is the reference.

@@ -130,7 +130,7 @@ delete those objects a day later, so restore the database first.
 
 ## Upgrading
 
-Images are published to `ghcr.io/alternayte/mantel` on every tag: `1.0.0`, `1.0` and `latest`. Pin a
+Images are published to `ghcr.io/alternayte/mantel` on every tag: `0.1.0`, `0.1` and `latest`. Pin a
 version in a deployment; `latest` is for trying it.
 
 Pull the image and restart. Migrations run at startup, and a migration the app cannot parse stops it
