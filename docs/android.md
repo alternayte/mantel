@@ -20,16 +20,44 @@ the only exception.
 
 - **Sign in** with a magic link or with GitHub, in your own browser rather than in the app. The app
   never sees your password and no page inside it asks for one.
+- **The library**: every photograph and video the account holds, newest first. An album is a
+  selection from it, so adding one to an album costs no upload and no storage.
 - **Albums**: make one, see what is in it, set a cover, caption an item, reorder by holding a
   photograph and dragging it.
 - **Upload** through the system photo picker, so the app sees the files you chose and nothing else.
   The upload runs in the background with a notification, and resumes where it stopped if it is
-  interrupted.
+  interrupted. A file the library already holds is never sent twice: the app hashes it first and the
+  server answers that it has it.
 - **Share** with a link, optionally behind a PIN and optionally expiring after 7, 30 or 90 days.
   Revoking a link is immediate: it returns 404 from the next request.
+- **Back up** the phone's media to your library, if you turn it on. See below.
 
 The viewer is the web. A recipient opens the link in whatever browser they have, which is the point
 of the product.
+
+## Backup
+
+Backup is off. Turning it on is the only thing that makes the app ask to read the device's media;
+picking photographs by hand uses the system picker, which needs no permission at all. An install
+that never turns backup on is never asked for anything.
+
+When it is on:
+
+- It offers the folders on the device and starts with **Camera** and nothing else. The rest of a
+  phone is screenshots, downloads and things people sent in a group chat.
+- It runs every six hours, by default only on wi-fi and only while charging. Both are yours to
+  change, and "Back up now" runs it immediately.
+- It is **one-way and additive**. It only ever reads. Deleting a photograph on the phone leaves the
+  backup standing, and nothing in the app can delete from the phone.
+- Turning it off stops new uploads and removes nothing, here or on the phone.
+
+Media backed up this way lands in the library with a thumbnail. The rest of its derivatives are
+rendered when it first joins an album — that is, when somebody might actually look at it.
+
+The library keeps whatever the camera produced, including formats this product cannot render. Those
+appear as a filename with no thumbnail and cannot be put in an album, because an album is what a
+recipient is shown. The original is kept byte for byte, so support for a format added later is a
+re-render rather than a re-upload.
 
 ## Build it yourself
 
