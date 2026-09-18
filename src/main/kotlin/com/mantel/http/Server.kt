@@ -22,6 +22,7 @@ import com.mantel.features.media.getUploadProgress
 import com.mantel.features.media.reorderItems
 import com.mantel.features.media.reportDerivatives
 import com.mantel.features.media.reportFailure
+import com.mantel.features.media.reportHeartbeat
 import com.mantel.features.media.retryItem
 import com.mantel.features.media.setCaption
 import com.mantel.kernel.Clock
@@ -138,6 +139,7 @@ fun Application.module(services: Services) {
             reportDerivatives(call, services.config, services.clock)
         }
         post("/api/worker/items/{itemId}/failure") { reportFailure(call, services.config, services.clock) }
+        post("/api/worker/items/{itemId}/heartbeat") { reportHeartbeat(call, services.config, services.clock) }
 
         get("/api/account/export") { exportAccount(call) }
         delete("/api/account") { deleteAccount(call, services.storage) }

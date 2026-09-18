@@ -35,6 +35,15 @@ class PhotoPipeline(private val vips: String = "vips", private val vipsheader: S
         }
     }
 
+    /** One thumbnail at a given width, with metadata dropped. The video pipeline uses this too. */
+    fun thumbnailTo(
+        source: Path,
+        target: Path,
+        width: Int,
+    ) {
+        run(vips, "thumbnail", source.toString(), "$target[Q=82,keep=none]", width.toString())
+    }
+
     fun render(
         source: Path,
         into: Path,
@@ -43,8 +52,8 @@ class PhotoPipeline(private val vips: String = "vips", private val vipsheader: S
         val displayWebp = into.resolve("display.webp")
         val displayAvif = into.resolve("display.avif")
 
-        run(vips, "thumbnail", source.toString(), "$thumb[Q=80,keep=none]", "300")
-        run(vips, "thumbnail", source.toString(), "$displayWebp[Q=82,keep=none]", "1600")
+        thumbnailTo(source, thumb, 300)
+        thumbnailTo(source, displayWebp, 1600)
         run(vips, "thumbnail", source.toString(), "$displayAvif[Q=50,keep=none,compression=av1]", "1600")
 
         return Derivatives(
@@ -55,6 +64,8 @@ class PhotoPipeline(private val vips: String = "vips", private val vipsheader: S
             height = header(source, "height"),
         )
     }
+
+    fun widthOf(file: Path): Int = header(file, "width")
 
     private fun header(
         file: Path,

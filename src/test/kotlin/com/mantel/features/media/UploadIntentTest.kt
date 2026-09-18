@@ -88,6 +88,7 @@ class UploadIntentTest {
                     "POST /api/worker/claim",
                     "POST /api/worker/items/{itemId}/derivatives",
                     "POST /api/worker/items/{itemId}/failure",
+                    "POST /api/worker/items/{itemId}/heartbeat",
                 ),
                 routes,
             )

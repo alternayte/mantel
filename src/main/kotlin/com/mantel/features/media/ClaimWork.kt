@@ -26,6 +26,10 @@ data class ClaimedItem(
     val thumbKey: String,
     val displayWebpKey: String,
     val displayAvifKey: String,
+    val posterKey: String,
+    val mp4Key: String,
+    /** How often to say the job is still running, in seconds. A third of the claim timeout. */
+    val heartbeatSeconds: Long,
 )
 
 /**
@@ -81,6 +85,9 @@ suspend fun claimWork(
                                     thumbKey = "$prefix/thumb.webp",
                                     displayWebpKey = "$prefix/display.webp",
                                     displayAvifKey = "$prefix/display.avif",
+                                    posterKey = "$prefix/poster.webp",
+                                    mp4Key = "$prefix/display.mp4",
+                                    heartbeatSeconds = config.worker.claimTimeout.seconds / 3,
                                 ),
                             )
                         }

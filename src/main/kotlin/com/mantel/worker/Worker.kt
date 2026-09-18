@@ -16,7 +16,9 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -37,13 +39,18 @@ data class ClaimedItem(
     val thumbKey: String,
     val displayWebpKey: String,
     val displayAvifKey: String,
+    val posterKey: String,
+    val mp4Key: String,
+    val heartbeatSeconds: Long,
 )
 
 @Serializable
 private data class DerivativesWritten(
     val thumbKey: String,
-    val displayWebpKey: String,
-    val displayAvifKey: String,
+    val displayWebpKey: String? = null,
+    val displayAvifKey: String? = null,
+    val posterKey: String? = null,
+    val mp4Key: String? = null,
     val width: Int,
     val height: Int,
     val durationMs: Int? = null,
@@ -87,6 +94,7 @@ class Worker(
     private val http: HttpClient,
     private val storage: ObjectStorage,
     private val photos: PhotoPipeline,
+    private val videos: VideoPipeline = VideoPipeline(photos = photos),
 ) {
     /** One pass: claim a batch and process it. Returns how many items were handled. */
     suspend fun tick(): Int {
@@ -104,7 +112,7 @@ class Worker(
         val claimed: List<ClaimedItem> = response.body()
 
         claimed.forEach { item ->
-            runCatching { process(item) }
+            runCatching { withHeartbeat(item) { process(item) } }
                 .onFailure { failure ->
                     log.warn("item {} failed on attempt {}: {}", item.itemId, item.attempt, failure.message)
                     report(item, "/failure", WorkFailed(failure.message ?: failure::class.simpleName.orEmpty()))
@@ -112,6 +120,30 @@ class Worker(
         }
         return claimed.size
     }
+
+    /**
+     * Says the job is still running while it runs. A 4K transcode takes longer than the claim
+     * timeout on slow hardware, and a lapsed claim means a second worker starts the same file.
+     */
+    private suspend fun <T> withHeartbeat(
+        item: ClaimedItem,
+        work: suspend () -> T,
+    ): T =
+        coroutineScope {
+            val beat =
+                launch {
+                    while (true) {
+                        delay(item.heartbeatSeconds.coerceAtLeast(1) * 1000)
+                        runCatching { report(item, "/heartbeat", Unit) }
+                            .onFailure { log.warn("heartbeat for {} failed: {}", item.itemId, it.message) }
+                    }
+                }
+            try {
+                work()
+            } finally {
+                beat.cancel()
+            }
+        }
 
     @OptIn(kotlin.io.path.ExperimentalPathApi::class)
     private suspend fun process(item: ClaimedItem) {
@@ -138,9 +170,25 @@ class Worker(
                         ),
                     )
                 }
-                // Video arrives at M4. Until then a video item fails honestly rather than
-                // sitting in the queue looking like it is being worked on.
-                else -> throw PipelineFailure("${item.kind} is not rendered yet")
+                "video" -> {
+                    val rendered = videos.render(original, scratch)
+                    storage.upload(item.thumbKey, rendered.thumb, "image/webp")
+                    storage.upload(item.posterKey, rendered.poster, "image/webp")
+                    storage.upload(item.mp4Key, rendered.mp4, "video/mp4")
+                    report(
+                        item,
+                        "/derivatives",
+                        DerivativesWritten(
+                            thumbKey = item.thumbKey,
+                            posterKey = item.posterKey,
+                            mp4Key = item.mp4Key,
+                            width = rendered.width,
+                            height = rendered.height,
+                            durationMs = rendered.durationMs,
+                        ),
+                    )
+                }
+                else -> throw PipelineFailure("${item.kind} is not a kind this renders")
             }
         } finally {
             scratch.deleteRecursively()

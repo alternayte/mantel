@@ -261,15 +261,30 @@ recovers an item from a worker that died holding it. Each claim counts an attemp
 
 ```json
 [ { "itemId": "…", "kind": "photo", "attempt": 1, "originalKey": "…",
-    "thumbKey": "…", "displayWebpKey": "…", "displayAvifKey": "…" } ]
+    "thumbKey": "…", "displayWebpKey": "…", "displayAvifKey": "…",
+    "posterKey": "…", "mp4Key": "…", "heartbeatSeconds": 200 } ]
 ```
 
-The API names the derivative keys, so the key layout stays owned by one place.
+The API names the derivative keys, so the key layout stays owned by one place. A photo writes the
+thumbnail and the two display images; a video writes the thumbnail, the poster and the MP4.
+
+### `POST /api/worker/items/{itemId}/heartbeat`
+
+Says the job is still running, every `heartbeatSeconds`. A 4K transcode outlasts the claim timeout
+on slow hardware, and a lapsed claim means a second worker starts the same file. `not_found` is the
+signal to stop working on the item.
 
 ### `POST /api/worker/items/{itemId}/derivatives`
 
 ```json
 { "thumbKey": "…", "displayWebpKey": "…", "displayAvifKey": "…", "width": 2400, "height": 1600 }
+```
+
+For a video:
+
+```json
+{ "thumbKey": "…", "posterKey": "…", "mp4Key": "…",
+  "width": 3840, "height": 2160, "durationMs": 6000 }
 ```
 
 Marks the item ready and settles the album. An album whose items have all finished becomes `ready`.
@@ -283,6 +298,18 @@ Marks the item ready and settles the album. An album whose items have all finish
 Puts the item back on the queue with a widening gap between attempts (1 minute, then 4, then 16).
 After `MANTEL_MAX_ATTEMPTS` the item is `failed` with `lastError` set, and the creator sees it as a
 failure to retry or remove. A failed item is never claimed again and never disappears.
+
+## Media
+
+A photo becomes a 300px WebP thumbnail and a 1600px display image in WebP and AVIF.
+
+A video becomes a 300px WebP thumbnail, a 1600px WebP poster and one 1080p H.264 MP4 with AAC
+audio, used by both the web viewer and the download bundle. The MP4 carries its index at the front,
+so playback starts before the file has finished arriving. Dimensions reported are the source's.
+
+Location and device data are removed from every served derivative: EXIF for photos, container
+metadata for video. The original keeps whatever it arrived with, and "include originals" in a
+download says so plainly.
 
 ## Item states
 

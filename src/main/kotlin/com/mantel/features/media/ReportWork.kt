@@ -27,8 +27,10 @@ import java.util.UUID
 @Serializable
 data class DerivativesWrittenRequest(
     val thumbKey: String,
-    val displayWebpKey: String,
-    val displayAvifKey: String,
+    val displayWebpKey: String? = null,
+    val displayAvifKey: String? = null,
+    val posterKey: String? = null,
+    val mp4Key: String? = null,
     val width: Int,
     val height: Int,
     val durationMs: Int? = null,
@@ -70,6 +72,8 @@ suspend fun reportDerivatives(
                 it[thumbKey] = report.thumbKey
                 it[displayWebpKey] = report.displayWebpKey
                 it[displayAvifKey] = report.displayAvifKey
+                it[posterKey] = report.posterKey
+                it[mp4Key] = report.mp4Key
                 it[width] = report.width
                 it[height] = report.height
                 it[durationMs] = report.durationMs
@@ -81,6 +85,35 @@ suspend fun reportDerivatives(
             WorkOutcome(next.wire, item[MediaItems.attempts])
         }
     call.respond(outcome)
+}
+
+/**
+ * A worker holding a long job says so. A 4K transcode outlasts the claim timeout on slow hardware,
+ * and without this the item would be handed to a second worker while the first is still encoding:
+ * two workers, one file, twice the cost and a race over the derivative keys.
+ *
+ * It answers 404 when the item is gone, which is the signal to stop working on it.
+ */
+suspend fun reportHeartbeat(
+    call: ApplicationCall,
+    config: Config,
+    clock: Clock,
+) {
+    requireWorker(call, config)
+    val itemId = itemIdOf(call)
+    val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
+
+    val status =
+        db {
+            val item =
+                MediaItems.selectAll().where { MediaItems.id eq itemId }.singleOrNull()
+                    ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
+            if (item[MediaItems.status] == ItemState.PROCESSING) {
+                MediaItems.update({ MediaItems.id eq itemId }) { it[claimedAt] = now }
+            }
+            item[MediaItems.status]
+        }
+    call.respond(WorkOutcome(status.wire, 0))
 }
 
 /**
