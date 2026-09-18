@@ -102,6 +102,7 @@ fun AlbumsScreen(
             }
         }
 
+        Button(text = "Library", onClick = model::openLibrary, quiet = true)
         Button(text = "Sign out", onClick = model::signOut, quiet = true)
         Spacer(Modifier.height(Tokens.Space.gutter))
     }

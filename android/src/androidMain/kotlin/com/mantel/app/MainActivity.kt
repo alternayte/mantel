@@ -22,6 +22,7 @@ import com.mantel.app.album.AlbumsScreen
 import com.mantel.app.auth.SignInScreen
 import com.mantel.app.design.Page
 import com.mantel.app.design.Title
+import com.mantel.app.library.LibraryScreen
 
 /**
  * One activity. Sign-in leaves the app for a browser and comes back through the deep link, and
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
                 is Screen.Starting -> Page { Title("Mantel") }
                 is Screen.SignIn -> SignInScreen(current, model)
                 is Screen.Albums -> AlbumsScreen(current, model)
+                is Screen.Library -> LibraryScreen(current, model)
                 is Screen.Album -> AlbumScreen(current, upload, model)
             }
         }

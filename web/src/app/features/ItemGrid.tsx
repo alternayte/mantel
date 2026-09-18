@@ -136,7 +136,7 @@ function ItemTile({
             Retry
           </Button>
         ) : (
-          <Button size="sm" onClick={() => onCover(item.id)} disabled={item.status !== 'ready' || isCover}>
+          <Button size="sm" onClick={() => onCover(item.id)} disabled={item.status !== 'shareable' || isCover}>
             Cover
           </Button>
         )}
@@ -157,12 +157,12 @@ function ItemFace({ item }: { item: Item }) {
       </span>
     )
   }
-  if (item.status === 'ready') {
-    return item.thumbUrl ? (
-      <img src={item.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" draggable={false} />
-    ) : (
-      <span className="text-muted">ready</span>
-    )
+  // A thumbnail exists from the moment an item is backed up, whether or not the rest does.
+  if (item.thumbUrl) {
+    return <img src={item.thumbUrl} alt="" className="h-full w-full object-cover" loading="lazy" draggable={false} />
+  }
+  if (item.kind === 'file') {
+    return <span className="px-2 text-center text-muted">{item.filename ?? 'kept, not rendered'}</span>
   }
   return <span className="animate-pulse text-muted">{item.status.replace('_', ' ')}</span>
 }

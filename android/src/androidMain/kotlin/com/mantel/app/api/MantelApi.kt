@@ -139,7 +139,8 @@ class MantelApi(
         }.require<Unit>()
     }
 
-    suspend fun deleteItem(
+    /** Out of the album, not out of the library: unselecting is not deleting. */
+    suspend fun removeFromAlbum(
         albumId: String,
         itemId: String,
     ) {
@@ -176,30 +177,43 @@ class MantelApi(
 
     // --- upload ---------------------------------------------------------------------------------
 
-    suspend fun uploadIntent(
-        albumId: String,
-        files: List<DeclaredFile>,
-    ): UploadIntentResponse =
-        client.post("$base/api/albums/$albumId/upload-intent") {
+    // Media lands in the library. An album is a selection from it, so an upload names no album.
+    suspend fun uploadIntent(files: List<DeclaredFile>): UploadIntentResponse =
+        client.post("$base/api/library/upload-intent") {
             authorize()
             contentType(ContentType.Application.Json)
             setBody(UploadIntentRequest(files))
         }.require()
 
-    suspend fun completeUploads(
-        albumId: String,
-        itemIds: List<String>,
-    ): CompleteUploadsResponse =
-        client.post("$base/api/albums/$albumId/uploads/complete") {
+    suspend fun completeUploads(itemIds: List<String>): CompleteUploadsResponse =
+        client.post("$base/api/library/uploads/complete") {
             authorize()
             contentType(ContentType.Application.Json)
             setBody(CompleteUploadsRequest(itemIds))
         }.require()
 
-    suspend fun uploadProgress(
+    suspend fun library(after: String? = null): LibraryPage =
+        client.get("$base/api/library${after?.let { "?after=$it" }.orEmpty()}") { authorize() }.require()
+
+    suspend fun deleteFromLibrary(itemId: String) {
+        client.delete("$base/api/library/$itemId") { authorize() }.require<Unit>()
+    }
+
+    /** Selecting library media into an album. It costs no quota and no upload. */
+    suspend fun addToAlbum(
         albumId: String,
-        itemId: String,
-    ): UploadProgress = client.get("$base/api/albums/$albumId/items/$itemId/upload-progress") { authorize() }.require()
+        mediaItemIds: List<String>,
+    ) {
+        client.post("$base/api/albums/$albumId/items") {
+            authorize()
+            contentType(ContentType.Application.Json)
+            setBody(AddItemsRequest(mediaItemIds))
+        }.require<Unit>()
+    }
+
+    /** What storage already holds for an interrupted upload, and fresh URLs for what it does not. */
+    suspend fun uploadProgress(itemId: String): UploadProgress =
+        client.get("$base/api/library/$itemId/upload-progress") { authorize() }.require()
 
     /**
      * The bytes, straight to storage. They never pass through the API (SDD.md 6.3), so this call
@@ -272,6 +286,9 @@ class MantelApi(
 
     @Serializable
     private data class CreateShareLinkRequest(val pin: String? = null, val expiresInDays: Int? = null)
+
+    @Serializable
+    private data class AddItemsRequest(val mediaItemIds: List<String>)
 
     @Serializable
     private data class UploadIntentRequest(val files: List<DeclaredFile>)

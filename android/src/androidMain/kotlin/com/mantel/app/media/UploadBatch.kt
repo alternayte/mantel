@@ -32,12 +32,14 @@ data class BatchItem(
     val itemId: String? = null,
     val uploadUrl: String? = null,
     val uploadId: String? = null,
+    val alreadyHeld: Boolean = false,
     val uploaded: Boolean = false,
 )
 
 @Serializable
 data class UploadBatch(
-    val albumId: String,
+    /** Null when the batch is a backup: it lands in the library and joins no album. */
+    val albumId: String? = null,
     val items: List<BatchItem>,
 ) {
     val totalBytes: Long get() = items.sumOf { it.sizeBytes }
@@ -87,4 +89,5 @@ fun describe(
     }
 }
 
-fun BatchItem.declared() = DeclaredFile(filename = filename, contentType = contentType, sizeBytes = sizeBytes)
+fun BatchItem.declared(contentHash: String? = null) =
+    DeclaredFile(filename = filename, contentType = contentType, sizeBytes = sizeBytes, contentHash = contentHash)

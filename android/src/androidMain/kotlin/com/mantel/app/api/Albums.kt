@@ -50,8 +50,17 @@ data class AlbumView(
     val items: List<ItemView>,
 )
 
+/** `contentHash` is the SHA-256 of the original bytes: the API answers when it already holds them. */
 @Serializable
-data class DeclaredFile(val filename: String, val contentType: String, val sizeBytes: Long)
+data class DeclaredFile(
+    val filename: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    val contentHash: String? = null,
+)
+
+@Serializable
+data class LibraryPage(val items: List<ItemView>, val next: String? = null, val totalItems: Long = 0)
 
 @Serializable
 data class PresignedPart(val partNumber: Int, val uploadUrl: String, val sizeBytes: Long)
@@ -65,6 +74,8 @@ data class PresignedUpload(
     val uploadUrl: String? = null,
     val uploadId: String? = null,
     val parts: List<PresignedPart>? = null,
+    /** The library already holds these bytes. Nothing to send, and nothing was reserved. */
+    val alreadyHeld: Boolean = false,
 )
 
 @Serializable
@@ -110,7 +121,12 @@ enum class ItemStatus {
     PENDING_UPLOAD,
     UPLOADED,
     PROCESSING,
-    READY,
+
+    /** The library holds the original and a thumbnail. Nothing renders it for a viewer yet. */
+    BACKED_UP,
+
+    /** Every derivative exists, so an album holding it can publish. */
+    SHAREABLE,
     FAILED,
     UNKNOWN,
     ;
@@ -121,3 +137,6 @@ enum class ItemStatus {
 }
 
 val ItemView.state: ItemStatus get() = ItemStatus.of(status)
+
+/** Nothing is waiting on it: it is either shown or it failed. */
+val ItemView.settled: Boolean get() = state == ItemStatus.SHAREABLE || state == ItemStatus.FAILED

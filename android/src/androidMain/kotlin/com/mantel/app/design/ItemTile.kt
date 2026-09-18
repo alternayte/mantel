@@ -44,28 +44,30 @@ fun ItemTile(
             .background(Tokens.Colour.surfaceLift)
             .then(if (isCover) Modifier.border(2.dp, Tokens.Colour.ink) else Modifier),
     ) {
-        when (item.state) {
-            ItemStatus.READY ->
-                if (item.thumbUrl != null) {
-                    AsyncImage(
-                        model = item.thumbUrl,
-                        contentDescription = item.caption ?: item.filename,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-            ItemStatus.FAILED -> TileNote(item.lastError ?: "Failed", failStyle.color)
+        // A thumbnail exists from the moment an item is backed up, whether or not the rest does.
+        when {
+            item.thumbUrl != null ->
+                AsyncImage(
+                    model = item.thumbUrl,
+                    contentDescription = item.caption ?: item.filename,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            item.kind.equals("file", ignoreCase = true) ->
+                // Kept, not rendered. The name is all there is to show.
+                TileNote(item.filename ?: "file", Tokens.Colour.muted)
+            item.state == ItemStatus.FAILED -> TileNote(item.lastError ?: "Failed", failStyle.color)
             else -> TileNote(waiting(item), Tokens.Colour.muted)
         }
 
-        if (item.kind.equals("video", ignoreCase = true) && item.state == ItemStatus.READY) {
+        if (item.kind.equals("video", ignoreCase = true) && item.thumbUrl != null) {
             BasicText(
                 "VIDEO",
                 style = titleStyle,
                 modifier = Modifier.align(Alignment.BottomStart).padding(8.dp),
             )
         }
-        if (item.caption != null && item.state == ItemStatus.READY) {
+        if (item.caption != null) {
             BasicText(
                 "•",
                 style = captionStyle,
@@ -80,6 +82,7 @@ private fun waiting(item: ItemView): String =
         ItemStatus.PENDING_UPLOAD -> "Waiting"
         ItemStatus.UPLOADED -> "Queued"
         ItemStatus.PROCESSING -> "Rendering"
+        ItemStatus.BACKED_UP -> "Backed up"
         else -> item.status
     }
 

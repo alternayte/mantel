@@ -52,6 +52,17 @@ sealed interface Screen {
         val retryable: Boolean = false,
     ) : Screen
 
+    data class Library(
+        val items: List<ItemView> = emptyList(),
+        val totalItems: Long = 0,
+        val selected: Set<String> = emptySet(),
+        val albums: List<AlbumSummary> = emptyList(),
+        val addingTo: Boolean? = null,
+        val busy: Boolean = false,
+        val error: String? = null,
+        val retryable: Boolean = false,
+    ) : Screen
+
     data class Album(
         val album: AlbumView,
         val selected: String? = null,
@@ -299,6 +310,77 @@ class AppModel(
         }
     }
 
+    // --- library ------------------------------------------------------------------------------
+
+    fun openLibrary() {
+        scope.launch {
+            watching?.cancel()
+            _screen.value = Screen.Library()
+            refreshLibrary()
+        }
+    }
+
+    private fun refreshLibrary() {
+        scope.launch {
+            onLibrary { api ->
+                val page = api.library()
+                val albums = api.albums()
+                _screen.update<Screen.Library> {
+                    it.copy(items = page.items, totalItems = page.totalItems, albums = albums, busy = false)
+                }
+            }
+        }
+    }
+
+    fun toggleSelection(itemId: String) {
+        _screen.update<Screen.Library> { state ->
+            val next = state.selected.toMutableSet()
+            if (!next.add(itemId)) next.remove(itemId)
+            state.copy(selected = next, addingTo = null, error = null)
+        }
+    }
+
+    fun chooseAlbum() {
+        _screen.update<Screen.Library> { it.copy(addingTo = true) }
+    }
+
+    fun cancelAdd() {
+        _screen.update<Screen.Library> { it.copy(addingTo = null) }
+    }
+
+    /** Selecting library media into an album. Nothing is copied and nothing costs quota. */
+    fun addSelectionTo(albumId: String) {
+        val state = _screen.value as? Screen.Library ?: return
+        scope.launch {
+            onLibrary { api ->
+                api.addToAlbum(albumId, state.selected.toList())
+                _screen.update<Screen.Library> { it.copy(selected = emptySet(), addingTo = null, busy = false) }
+                open(albumId)
+            }
+        }
+    }
+
+    /** The only deletion that removes bytes. An album only ever held a reference to these. */
+    fun deleteSelection() {
+        val state = _screen.value as? Screen.Library ?: return
+        scope.launch {
+            onLibrary { api ->
+                state.selected.forEach { api.deleteFromLibrary(it) }
+                _screen.update<Screen.Library> { it.copy(selected = emptySet(), busy = false) }
+                refreshLibrary()
+            }
+        }
+    }
+
+    private suspend fun onLibrary(block: suspend (MantelApi) -> Unit) {
+        _screen.update<Screen.Library> { it.copy(busy = true, error = null, retryable = false) }
+        withApi(
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Library> { it.copy(busy = false, error = message, retryable = retryable) }
+            },
+        ) { api -> block(api) }
+    }
+
     fun openAlbum(albumId: String) {
         scope.launch { open(albumId) }
     }
@@ -320,7 +402,7 @@ class AppModel(
         }
     }
 
-    /** Leaves the album. The albums behind it are re-read, because one of them has just changed. */
+    /** Leaves a screen for the albums behind it, which are re-read because one may have changed. */
     fun back() {
         val me = account ?: return
         watching?.cancel()
@@ -373,7 +455,7 @@ class AppModel(
         val itemId = state.selected ?: return
         scope.launch {
             onAlbum { api, album ->
-                api.deleteItem(album.id, itemId)
+                api.removeFromAlbum(album.id, itemId)
                 reload(api, album.id) { it.copy(selected = null) }
             }
         }
@@ -520,6 +602,7 @@ class AppModel(
         when (_screen.value) {
             is Screen.Albums -> refreshAlbums()
             is Screen.Album -> refreshAlbum()
+            is Screen.Library -> refreshLibrary()
             else -> Unit
         }
     }

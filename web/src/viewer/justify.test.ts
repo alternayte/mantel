@@ -3,7 +3,7 @@ import { justify, widthOf } from './justify'
 import type { Item } from './manifest'
 
 const photo = (id: string, width: number, height: number): Item =>
-  ({ id, kind: 'photo', status: 'ready', width, height, thumbUrl: 't' }) as Item
+  ({ id, kind: 'photo', status: 'shareable', width, height, thumbUrl: 't' }) as Item
 
 // The fixture album's real shapes, including the ones that break a grid.
 const panorama = photo('panorama', 2000, 780)
@@ -47,7 +47,7 @@ test('every item appears exactly once, in order', () => {
 })
 
 test('a missing size falls back rather than dividing by zero', () => {
-  const unknown = { id: 'x', kind: 'photo', status: 'ready', thumbUrl: 't' } as Item
+  const unknown = { id: 'x', kind: 'photo', status: 'shareable', thumbUrl: 't' } as Item
   const rows = justify([unknown], 1200, 300, 8)
   expect(rows[0].height).toBeGreaterThan(0)
   expect(Number.isFinite(widthOf(unknown, rows[0].height))).toBe(true)

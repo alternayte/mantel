@@ -31,6 +31,7 @@ import com.mantel.features.media.completeLibraryUploads
 import com.mantel.features.media.completeUploads
 import com.mantel.features.media.createLibraryUploadIntent
 import com.mantel.features.media.createUploadIntent
+import com.mantel.features.media.getLibraryUploadProgress
 import com.mantel.features.media.getUploadProgress
 import com.mantel.features.media.removeFromAlbum
 import com.mantel.features.media.reorderItems
@@ -165,6 +166,9 @@ fun Application.module(services: Services) {
             createLibraryUploadIntent(call, services.config, services.storage, services.clock)
         }
         post("/api/library/uploads/complete") { completeLibraryUploads(call, services.storage) }
+        get("/api/library/{itemId}/upload-progress") {
+            getLibraryUploadProgress(call, services.config, services.storage)
+        }
         delete("/api/library/{itemId}") { deleteFromLibrary(call, services.storage, services.clock) }
 
         get("/api/albums") { listAlbums(call) }

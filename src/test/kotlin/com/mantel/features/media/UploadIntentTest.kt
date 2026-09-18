@@ -84,6 +84,7 @@ class UploadIntentTest {
                     "POST /api/library/upload-intent",
                     "POST /api/library/uploads/complete",
                     "DELETE /api/library/{itemId}",
+                    "GET /api/library/{itemId}/upload-progress",
                     "GET /api/albums",
                     "POST /api/albums",
                     "GET /api/albums/{id}",

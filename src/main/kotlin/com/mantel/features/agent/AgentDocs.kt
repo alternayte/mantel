@@ -242,6 +242,14 @@ fun openApiDocument(config: Config): String =
             "responses": { "204": { "description": "Deleted" } }
           }
         },
+        "/api/library/{itemId}/upload-progress": {
+          "get": {
+            "summary": "What storage already holds for an interrupted upload",
+            "description": "Needs albums:write. Fresh URLs for the parts that did not arrive.",
+            "parameters": [{ "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }],
+            "responses": { "200": { "description": "Received and remaining parts" } }
+          }
+        },
         "/api/library/upload-intent": {
           "post": {
             "summary": "Check quota and get an upload URL per file, with no album",
