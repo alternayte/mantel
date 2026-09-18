@@ -76,7 +76,12 @@ jobs:
           java-version: '21'
 
       - if: env.KEYSTORE != ''
+        # The runner image already carries the SDK and its accepted licences. The action's default
+        # package list still asks for `tools`, which no longer exists, so it installs nothing.
         uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
 
       - if: env.KEYSTORE != ''
         uses: gradle/actions/setup-gradle@v4

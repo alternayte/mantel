@@ -33,7 +33,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      # The runner image already carries the SDK and its accepted licences. The action's default
+      # package list still asks for `tools`, which no longer exists, so it installs nothing.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: ''
+
       - uses: gradle/actions/setup-gradle@v4
       - uses: extractions/setup-just@v2
       - run: just check-android
