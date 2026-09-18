@@ -287,6 +287,23 @@ class S3ObjectStorage(
         )
     }
 
+    override fun list(
+        prefix: String,
+        after: String?,
+    ): Pair<List<StoredObject>, String?> {
+        val response =
+            client.listObjectsV2(
+                ListObjectsV2Request.builder()
+                    .bucket(config.bucket)
+                    .prefix(prefix)
+                    .continuationToken(after)
+                    .maxKeys(1000)
+                    .build(),
+            )
+        return response.contents().map { StoredObject(it.key(), it.size(), it.lastModified()) } to
+            response.nextContinuationToken()
+    }
+
     override fun sizeOf(key: String): Long? =
         try {
             client.headObject(HeadObjectRequest.builder().bucket(config.bucket).key(key).build()).contentLength()

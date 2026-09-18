@@ -22,11 +22,13 @@ import com.mantel.features.auth.requestMagicLink
 import com.mantel.features.auth.revokeSession
 import com.mantel.features.auth.startGitHubOAuth
 import com.mantel.features.media.claimWork
+import com.mantel.features.media.classifyObjects
 import com.mantel.features.media.completeUploads
 import com.mantel.features.media.createUploadIntent
 import com.mantel.features.media.deleteItem
 import com.mantel.features.media.getUploadProgress
 import com.mantel.features.media.reorderItems
+import com.mantel.features.media.repairQuota
 import com.mantel.features.media.reportDerivatives
 import com.mantel.features.media.reportFailure
 import com.mantel.features.media.reportHeartbeat
@@ -205,6 +207,9 @@ fun Application.module(services: Services) {
         }
         post("/api/worker/items/{itemId}/failure") { reportFailure(call, services.config, services.clock) }
         post("/api/worker/items/{itemId}/heartbeat") { reportHeartbeat(call, services.config, services.clock) }
+
+        post("/api/worker/reconcile/classify") { classifyObjects(call, services.config) }
+        post("/api/worker/reconcile/quota") { repairQuota(call, services.config) }
 
         post("/api/worker/bundles/claim") { claimBundles(call, services.config, services.clock) }
         post("/api/worker/bundles/{bundleId}/built") { reportBundleBuilt(call, services.config, services.clock) }

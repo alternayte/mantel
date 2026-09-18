@@ -8,3 +8,6 @@ build/
 .gradle/
 web/node_modules/
 web/dist/
+site/node_modules/
+site/dist/
+site/.astro/

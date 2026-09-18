@@ -1,0 +1,10 @@
+/* The site reads the same frozen tokens as the product, so the marketing page and the album a
+   recipient opens are visibly the same thing (DESIGN.md). */
+:root {
+  --sl-color-bg: #0c0c0d;
+  --sl-color-bg-nav: #121214;
+  --sl-color-text: #ece9e4;
+  --sl-color-text-accent: #87837c;
+  --sl-color-hairline: #2a2a2c;
+  --sl-font: ui-sans-serif, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+}

@@ -100,6 +100,20 @@ class RecordingStorage : ObjectStorage {
     // behaviour is proved against MinIO in S3ObjectStorageTest and ResumableUploadTest.
     private val multipart = mutableMapOf<String, MutableList<com.mantel.storage.UploadedPart>>()
 
+    /** Test-only: how old each object pretends to be, for the reconciliation sweep. */
+    val ages = mutableMapOf<String, java.time.Instant>()
+
+    override fun list(
+        prefix: String,
+        after: String?,
+    ): Pair<List<com.mantel.storage.StoredObject>, String?> =
+        objects.keys
+            .filter { it.startsWith(prefix) }
+            .sorted()
+            .map {
+                com.mantel.storage.StoredObject(it, objects[it]!!.size.toLong(), ages[it] ?: java.time.Instant.now())
+            } to null
+
     override fun presignGetForThisHour(
         key: String,
         validFor: Duration,
@@ -239,6 +253,7 @@ fun testConfig(
             maxAttempts = 3,
             batchSize = 4,
             pollInterval = Duration.ofSeconds(1),
+            reconcileInterval = Duration.ofHours(6),
         ),
 )
 

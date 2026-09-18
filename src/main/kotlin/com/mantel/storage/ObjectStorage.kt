@@ -9,6 +9,8 @@ import java.time.Duration
  */
 data class UploadedPart(val partNumber: Int, val etag: String, val sizeBytes: Long)
 
+data class StoredObject(val key: String, val sizeBytes: Long, val lastModified: java.time.Instant)
+
 interface ObjectStorage {
     /** A presigned PUT the client uploads to directly, with the declared size enforced by storage. */
     fun presignPut(
@@ -95,6 +97,15 @@ interface ObjectStorage {
         from: java.nio.file.Path,
         contentType: String,
     )
+
+    /**
+     * Everything under a prefix, a page at a time. The reconciliation job walks this; nothing else
+     * should need it, because the database is the record of what exists.
+     */
+    fun list(
+        prefix: String,
+        after: String?,
+    ): Pair<List<StoredObject>, String?>
 
     /** The object's size, or null when it is not there. Used to confirm an upload actually arrived. */
     fun sizeOf(key: String): Long?

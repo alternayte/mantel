@@ -76,6 +76,9 @@ data class Config(
                         maxAttempts = env("MANTEL_MAX_ATTEMPTS")?.toInt() ?: 3,
                         batchSize = env("MANTEL_WORKER_BATCH")?.toInt() ?: 4,
                         pollInterval = Duration.ofSeconds(env("MANTEL_WORKER_POLL_SECONDS")?.toLong() ?: 5),
+                        // How often the worker walks storage looking for objects no row owns.
+                        reconcileInterval =
+                            Duration.ofHours(env("MANTEL_RECONCILE_INTERVAL_HOURS")?.toLong() ?: 6),
                     ),
                 github =
                     env("MANTEL_GITHUB_CLIENT_ID")?.let { clientId ->
@@ -132,6 +135,7 @@ data class WorkerConfig(
     val maxAttempts: Int,
     val batchSize: Int,
     val pollInterval: Duration,
+    val reconcileInterval: Duration,
 )
 
 data class GitHubConfig(

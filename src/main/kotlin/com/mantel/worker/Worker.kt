@@ -84,6 +84,18 @@ data class ClaimedBundle(
 @Serializable
 private data class BundleBuilt(val key: String, val byteSize: Long)
 
+@Serializable
+private data class ObservedObject(val key: String, val sizeBytes: Long, val ageSeconds: Long)
+
+@Serializable
+private data class ClassifyRequest(val objects: List<ObservedObject>)
+
+@Serializable
+private data class ClassifyResponse(val orphans: List<String>, val keptCount: Int)
+
+@Serializable
+private data class QuotaRepair(val accountsChecked: Int, val accountsCorrected: Int)
+
 private val log = LoggerFactory.getLogger("com.mantel.worker")
 
 /**
@@ -105,8 +117,14 @@ fun runWorker(config: Config) {
             log.info("worker mode against {}", config.publicBaseUrl)
             PhotoPipeline().verifyCodecs()
             val worker = Worker(config, token, http, storage, PhotoPipeline())
+            var nextSweep = System.currentTimeMillis()
             while (true) {
                 val processed = worker.tick()
+                if (System.currentTimeMillis() >= nextSweep) {
+                    runCatching { worker.reconcile() }
+                        .onFailure { log.warn("reconciliation failed: {}", it.message) }
+                    nextSweep = System.currentTimeMillis() + config.worker.reconcileInterval.toMillis()
+                }
                 if (processed == 0) delay(config.worker.pollInterval.toMillis())
             }
         }
@@ -285,6 +303,60 @@ class Worker(
         } finally {
             scratch.deleteRecursively()
         }
+    }
+
+    /**
+     * Storage and the database cannot see each other, so something has to walk both (SDD.md 3.3).
+     * The worker lists; the API decides. Nothing is deleted on the strength of a listing alone, and
+     * an object younger than the grace period is never touched: it may belong to a row that is a
+     * second from being committed.
+     */
+    suspend fun reconcile(): Int {
+        var deleted = 0
+        val now = java.time.Instant.now()
+
+        for (prefix in listOf("media/", "bundles/", "public/og/")) {
+            var after: String? = null
+            do {
+                val (objects, next) = storage.list(prefix, after)
+                after = next
+                if (objects.isEmpty()) continue
+
+                val response =
+                    http.post("${config.publicBaseUrl}/api/worker/reconcile/classify") {
+                        authenticate()
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            ClassifyRequest(
+                                objects.map {
+                                    ObservedObject(
+                                        key = it.key,
+                                        sizeBytes = it.sizeBytes,
+                                        ageSeconds = java.time.Duration.between(it.lastModified, now).seconds,
+                                    )
+                                },
+                            ),
+                        )
+                    }
+                if (!response.status.isSuccess()) {
+                    error("the API refused to classify objects (${response.status}): ${response.bodyAsText()}")
+                }
+                val orphans = response.body<ClassifyResponse>().orphans
+                if (orphans.isNotEmpty()) {
+                    log.info("reconciliation: deleting {} orphaned objects under {}", orphans.size, prefix)
+                    storage.delete(orphans)
+                    deleted += orphans.size
+                }
+            } while (after != null)
+        }
+
+        val repair =
+            http.post("${config.publicBaseUrl}/api/worker/reconcile/quota") { authenticate() }
+                .body<QuotaRepair>()
+        if (repair.accountsCorrected > 0) {
+            log.info("reconciliation: corrected storage used for {} accounts", repair.accountsCorrected)
+        }
+        return deleted
     }
 
     private suspend inline fun <reified T> report(
