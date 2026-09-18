@@ -25,11 +25,22 @@ kotlin {
             implementation(libs.ktor.client.okhttp)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.json)
+            implementation(libs.androidx.work)
+            implementation(libs.coil.compose)
+            implementation(libs.coil.network.okhttp)
+
+            // @Preview renders a composable in the IDE without a device. The annotation ships; the
+            // renderer that reads it is a debug-only dependency.
+            implementation(libs.androidx.compose.ui.tooling.preview)
         }
         androidUnitTest.dependencies {
             implementation(kotlin("test"))
         }
     }
+}
+
+dependencies {
+    debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
 android {

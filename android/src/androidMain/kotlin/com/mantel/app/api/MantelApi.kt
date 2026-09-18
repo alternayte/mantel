@@ -4,16 +4,21 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.content.OutgoingContent
 import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.ByteWriteChannel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -87,6 +92,120 @@ class MantelApi(
 
     suspend fun me(): Me = client.get("$base/api/me") { authorize() }.require()
 
+    // --- albums ---------------------------------------------------------------------------------
+
+    suspend fun albums(): List<AlbumSummary> = client.get("$base/api/albums") { authorize() }.require()
+
+    suspend fun createAlbum(title: String): AlbumSummary =
+        client.post("$base/api/albums") {
+            authorize()
+            contentType(ContentType.Application.Json)
+            setBody(CreateAlbumRequest(title))
+        }.require()
+
+    suspend fun album(albumId: String): AlbumView = client.get("$base/api/albums/$albumId") { authorize() }.require()
+
+    suspend fun setCover(
+        albumId: String,
+        itemId: String,
+    ): AlbumSummary =
+        client.patch("$base/api/albums/$albumId") {
+            authorize()
+            contentType(ContentType.Application.Json)
+            setBody(UpdateAlbumRequest(coverItemId = itemId))
+        }.require()
+
+    suspend fun setCaption(
+        albumId: String,
+        itemId: String,
+        caption: String?,
+    ) {
+        client.patch("$base/api/albums/$albumId/items/$itemId") {
+            authorize()
+            contentType(ContentType.Application.Json)
+            setBody(CaptionRequest(caption))
+        }.require<Unit>()
+    }
+
+    /** The whole order, every time: a partial reorder would ask the server to guess about the rest. */
+    suspend fun reorder(
+        albumId: String,
+        itemIds: List<String>,
+    ) {
+        client.patch("$base/api/albums/$albumId/items/reorder") {
+            authorize()
+            contentType(ContentType.Application.Json)
+            setBody(ReorderRequest(itemIds))
+        }.require<Unit>()
+    }
+
+    suspend fun deleteItem(
+        albumId: String,
+        itemId: String,
+    ) {
+        client.delete("$base/api/albums/$albumId/items/$itemId") { authorize() }.require<Unit>()
+    }
+
+    suspend fun retryItem(
+        albumId: String,
+        itemId: String,
+    ) {
+        client.post("$base/api/albums/$albumId/items/$itemId/retry") { authorize() }.require<Unit>()
+    }
+
+    // --- upload ---------------------------------------------------------------------------------
+
+    suspend fun uploadIntent(
+        albumId: String,
+        files: List<DeclaredFile>,
+    ): UploadIntentResponse =
+        client.post("$base/api/albums/$albumId/upload-intent") {
+            authorize()
+            contentType(ContentType.Application.Json)
+            setBody(UploadIntentRequest(files))
+        }.require()
+
+    suspend fun completeUploads(
+        albumId: String,
+        itemIds: List<String>,
+    ): CompleteUploadsResponse =
+        client.post("$base/api/albums/$albumId/uploads/complete") {
+            authorize()
+            contentType(ContentType.Application.Json)
+            setBody(CompleteUploadsRequest(itemIds))
+        }.require()
+
+    suspend fun uploadProgress(
+        albumId: String,
+        itemId: String,
+    ): UploadProgress = client.get("$base/api/albums/$albumId/items/$itemId/upload-progress") { authorize() }.require()
+
+    /**
+     * The bytes, straight to storage. They never pass through the API (SDD.md 6.3), so this call
+     * carries no session and the URL is signed for exactly this length and type.
+     */
+    suspend fun putBytes(
+        url: String,
+        contentType: String,
+        length: Long,
+        body: suspend (ByteWriteChannel) -> Unit,
+    ) {
+        val response =
+            client.put(url) {
+                setBody(
+                    object : OutgoingContent.WriteChannelContent() {
+                        override val contentType = ContentType.parse(contentType)
+                        override val contentLength = length
+
+                        override suspend fun writeTo(channel: ByteWriteChannel) = body(channel)
+                    },
+                )
+            }
+        if (response.status.value !in 200..299) {
+            throw ApiException("upload_failed", "Storage refused the upload (${response.status.value})")
+        }
+    }
+
     suspend fun logout() {
         client.post("$base/api/auth/logout") { authorize() }.require<Unit>()
     }
@@ -113,6 +232,28 @@ class MantelApi(
                 ?: throw ApiException("unreachable", "That address did not answer as a Mantel server")
         throw ApiException(detail.code, detail.message)
     }
+
+    @Serializable
+    private data class CreateAlbumRequest(val title: String)
+
+    @Serializable
+    private data class UpdateAlbumRequest(
+        val title: String? = null,
+        val description: String? = null,
+        val coverItemId: String? = null,
+    )
+
+    @Serializable
+    private data class CaptionRequest(val caption: String? = null)
+
+    @Serializable
+    private data class ReorderRequest(val itemIds: List<String>)
+
+    @Serializable
+    private data class UploadIntentRequest(val files: List<DeclaredFile>)
+
+    @Serializable
+    private data class CompleteUploadsRequest(val itemIds: List<String>)
 
     @Serializable
     private data class MagicLinkRequest(val email: String, val challenge: String)

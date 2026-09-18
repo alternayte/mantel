@@ -6,8 +6,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
 import com.mantel.app.AppModel
 import com.mantel.app.Screen
+import com.mantel.app.api.SignInMethods
 import com.mantel.app.design.Body
 import com.mantel.app.design.Button
 import com.mantel.app.design.Card
@@ -17,6 +19,7 @@ import com.mantel.app.design.Title
 import com.mantel.app.design.Tokens
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
+import com.mantel.app.previewModel
 
 /**
  * Sign-in, in the order the person meets it: which server, then who they are.
@@ -93,3 +96,44 @@ fun SignInScreen(
         }
     }
 }
+
+@Preview(name = "Sign in: which server", widthDp = 360, heightDp = 640)
+@Composable
+private fun ServerPreview() = SignInScreen(Screen.SignIn(serverUrl = ""), previewModel())
+
+@Preview(name = "Sign in: both methods", widthDp = 360, heightDp = 640)
+@Composable
+private fun MethodsPreview() =
+    SignInScreen(
+        Screen.SignIn(
+            serverUrl = "https://albums.example.com",
+            methods = SignInMethods(magicLink = true, github = true),
+            email = "nate@example.com",
+        ),
+        previewModel(),
+    )
+
+/** A self-hoster with no GitHub application must not be offered a button that answers with an error. */
+@Preview(name = "Sign in: magic link only", widthDp = 360, heightDp = 640)
+@Composable
+private fun MagicLinkOnlyPreview() =
+    SignInScreen(
+        Screen.SignIn(
+            serverUrl = "https://albums.example.com",
+            methods = SignInMethods(magicLink = true, github = false),
+            error = "That server did not answer",
+        ),
+        previewModel(),
+    )
+
+@Preview(name = "Sign in: link sent", widthDp = 360, heightDp = 640)
+@Composable
+private fun LinkSentPreview() =
+    SignInScreen(
+        Screen.SignIn(
+            serverUrl = "https://albums.example.com",
+            methods = SignInMethods(magicLink = true, github = true),
+            linkSentTo = "nate@example.com",
+        ),
+        previewModel(),
+    )
