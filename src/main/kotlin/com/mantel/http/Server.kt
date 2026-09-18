@@ -11,6 +11,7 @@ import com.mantel.features.album.listAlbums
 import com.mantel.features.album.updateAlbum
 import com.mantel.features.auth.completeGitHubOAuth
 import com.mantel.features.auth.consumeMagicLink
+import com.mantel.features.auth.getSignInMethods
 import com.mantel.features.auth.requestMagicLink
 import com.mantel.features.auth.revokeSession
 import com.mantel.features.auth.startGitHubOAuth
@@ -53,6 +54,7 @@ import io.ktor.server.plugins.defaultheaders.DefaultHeaders
 import io.ktor.server.plugins.statuspages.StatusPages
 import io.ktor.server.response.respond
 import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondText
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
 import io.ktor.server.routing.patch
@@ -125,14 +127,15 @@ fun Application.module(services: Services) {
             call.respond(HttpStatusCode.NoContent)
         }
 
+        get("/api/auth/methods") { getSignInMethods(call, services.config) }
         get("/api/me") { getMe(call) }
 
         get("/api/albums") { listAlbums(call) }
         post("/api/albums") { createAlbum(call) }
-        get("/api/albums/{id}") { getAlbum(call) }
+        get("/api/albums/{id}") { getAlbum(call, services.storage) }
         patch("/api/albums/{id}") { updateAlbum(call) }
         delete("/api/albums/{id}") { archiveAlbum(call) }
-        get("/api/albums/{id}/status") { getAlbumProgress(call) }
+        get("/api/albums/{id}/status") { getAlbumProgress(call, services.storage) }
 
         post("/api/albums/{id}/upload-intent") {
             createUploadIntent(call, services.config, services.storage, services.clock)
@@ -164,6 +167,10 @@ fun Application.module(services: Services) {
         staticResources("/assets", "web/assets") {
             cacheControl { listOf(io.ktor.http.CacheControl.MaxAge(maxAgeSeconds = 31_536_000)) }
         }
+
+        // The creator application. Every path under /app is the same page; it reads the address bar.
+        get("/app") { call.respondText(ContentType.Text.Html, HttpStatusCode.OK) { services.assets.appShell() } }
+        get("/app/{rest...}") { call.respondText(ContentType.Text.Html, HttpStatusCode.OK) { services.assets.appShell() } }
 
         get("/og-placeholder.png") {
             val bytes = Services::class.java.getResourceAsStream("/static/og-placeholder.png")!!.readBytes()

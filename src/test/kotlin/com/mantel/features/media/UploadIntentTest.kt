@@ -69,6 +69,7 @@ class UploadIntentTest {
                     "GET /api/auth/github",
                     "GET /api/auth/github/callback",
                     "POST /api/auth/logout",
+                    "GET /api/auth/methods",
                     "GET /api/me",
                     "GET /api/account/export",
                     "DELETE /api/account",
@@ -97,6 +98,8 @@ class UploadIntentTest {
                     "GET /a/{token}",
                     "GET /og-placeholder.png",
                     "GET /assets/{...}",
+                    "GET /app",
+                    "GET /app/{...}",
                 ),
                 routes,
             )

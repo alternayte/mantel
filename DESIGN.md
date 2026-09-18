@@ -63,6 +63,23 @@ owns; `site/references/output.md` sets that bar.
 | `FailedTile` | An item that failed, visible rather than missing |
 | `EmptyState` | An album with nothing in it, and an album that is gone |
 
+## The creator's inventory
+
+Run B (`site/references/run-b.md`) chose one workspace over a wizard: drop, watch, publish, with
+nothing between the creator and the album. Seven more components, shadcn-style — the project owns
+the source, and every one is styled from the tokens above rather than from a library's defaults.
+
+| Component | Responsible for |
+|---|---|
+| `Button`, `Input`, `Field`, `Card`, `Dialog` | The plain furniture, in three variants and two sizes |
+| `Meter` | Storage used against quota, in the header where it is noticed |
+| `ItemGrid` | Every item in its position, draggable by pointer and by keyboard |
+| `UploadProgress` | One row per file, so a slow upload is distinguishable from a dead one |
+| `ShareLinks` | Publishing, PIN, expiry, copy and revoke, on the album's own page |
+
+The creator surface is one shade lighter than the viewer: the viewer is a gallery at night, the
+creator is a desk with a lamp on it. Both read the same tokens.
+
 ## What is not in the viewer
 
 No header, no footer, no navigation, no logo, no share button, no download button in v1's grid, no

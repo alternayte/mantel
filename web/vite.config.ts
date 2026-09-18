@@ -1,10 +1,11 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 // The build output is served from the Ktor jar. Gradle picks up build/web-resources as a resource
 // root, so the assets land under /web inside the jar. No JavaScript runtime ships.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   server: {
     port: 5173,
     proxy: {

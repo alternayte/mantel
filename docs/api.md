@@ -47,6 +47,15 @@ hour, then `rate_limited`.
 Consumes the link, sets the session cookie and redirects to `/app`. A spent, unknown or expired
 token is `validation_failed`.
 
+### `GET /api/auth/methods`
+
+```json
+{ "magicLink": true, "github": false }
+```
+
+What this instance can sign someone in with. A self-hoster without a GitHub app should not be shown
+a button that answers with an error.
+
 ### `GET /api/auth/github`
 
 Redirects to GitHub with a `state` value held in a short-lived cookie scoped to the callback.
@@ -109,7 +118,8 @@ The account's albums, newest change first. Archived albums are not listed.
 
 ### `GET /api/albums/{id}`
 
-The album and its items in position order.
+The album and its items in position order. A ready item carries `thumbUrl`, signed by the hour like
+the viewer's, so the creator sees their own photographs.
 
 ### `PATCH /api/albums/{id}`
 

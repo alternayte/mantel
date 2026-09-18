@@ -1,0 +1,40 @@
+@import '../styles/tokens.css';
+@import 'tailwindcss';
+
+/*
+ * The creator is allowed shadcn-style components (SDD.md 7.2); it is not allowed a stock template.
+ * Tailwind's theme is replaced by the tokens the gauntlet froze, so a utility class and a component
+ * read the same values, and DESIGN.md stays the single source.
+ */
+@theme {
+  --color-surface: var(--colour-surface);
+  --color-surface-lift: var(--colour-surface-lift);
+  --color-ink: var(--colour-ink);
+  --color-muted: var(--colour-muted);
+  --color-line: var(--colour-line);
+  --color-fail: var(--colour-fail);
+
+  --radius-card: 10px;
+  --font-sans: var(--type-family);
+
+  --ease-out: var(--motion-ease);
+}
+
+/* The creator is a working surface, so it is a shade lighter than the viewer: the viewer is a
+   gallery at night, this is a desk with a lamp on it. */
+:root {
+  --work-surface: #121214;
+  --work-lift: #1b1b1e;
+}
+
+body {
+  margin: 0;
+  background: var(--work-surface);
+  color: var(--colour-ink);
+  font-family: var(--type-family);
+}
+
+:focus-visible {
+  outline: 2px solid var(--colour-muted);
+  outline-offset: 3px;
+}

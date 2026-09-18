@@ -4,13 +4,17 @@ import com.mantel.features.auth.requireAccountId
 import com.mantel.features.media.ItemState
 import com.mantel.features.media.MediaItems
 import com.mantel.kernel.db
+import com.mantel.storage.ObjectStorage
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respond
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
+import java.time.Duration
 
 @Serializable
 data class ItemView(
@@ -24,6 +28,8 @@ data class ItemView(
     val height: Int? = null,
     val durationMs: Int? = null,
     val lastError: String? = null,
+    /** The creator's own thumbnail. Signed by the hour, like the viewer's (SDD.md 3.2). */
+    val thumbUrl: String? = null,
 )
 
 @Serializable
@@ -53,7 +59,9 @@ fun ResultRow.toSummary() =
         updatedAt = this[Albums.updatedAt].toInstant().toString(),
     )
 
-fun ResultRow.toItemView() =
+private val THUMB_LIFETIME: Duration = Duration.ofHours(6)
+
+fun ResultRow.toItemView(storage: ObjectStorage? = null) =
     ItemView(
         id = this[MediaItems.id].toString(),
         position = this[MediaItems.position],
@@ -65,6 +73,10 @@ fun ResultRow.toItemView() =
         height = this[MediaItems.height],
         durationMs = this[MediaItems.durationMs],
         lastError = this[MediaItems.lastError],
+        thumbUrl =
+            this[MediaItems.thumbKey]
+                ?.takeIf { this[MediaItems.status] == ItemState.READY }
+                ?.let { key -> storage?.presignGetForThisHour(key, THUMB_LIFETIME) },
     )
 
 suspend fun listAlbums(call: ApplicationCall) {
@@ -79,15 +91,19 @@ suspend fun listAlbums(call: ApplicationCall) {
     call.respond(albums)
 }
 
-suspend fun getAlbum(call: ApplicationCall) {
+suspend fun getAlbum(
+    call: ApplicationCall,
+    storage: ObjectStorage,
+) {
     val album = requireOwnAlbum(call, albumIdFrom(call))
-    val items =
+    val rows =
         db {
             MediaItems.selectAll()
                 .where { MediaItems.albumId eq album[Albums.id] }
                 .orderBy(MediaItems.position to SortOrder.ASC)
-                .map { it.toItemView() }
+                .toList()
         }
+    val items = withContext(Dispatchers.IO) { rows.map { it.toItemView(storage) } }
     val summary = album.toSummary()
     call.respond(
         AlbumView(
@@ -119,15 +135,19 @@ data class AlbumProgress(
  * Per-item processing progress. The creator watches this while assembling, and the viewer's
  * manifest reads the same rows, because the job state and the item state are the same data.
  */
-suspend fun getAlbumProgress(call: ApplicationCall) {
+suspend fun getAlbumProgress(
+    call: ApplicationCall,
+    storage: ObjectStorage,
+) {
     val album = requireOwnAlbum(call, albumIdFrom(call))
-    val items =
+    val rows =
         db {
             MediaItems.selectAll()
                 .where { MediaItems.albumId eq album[Albums.id] }
                 .orderBy(MediaItems.position to SortOrder.ASC)
-                .map { it.toItemView() }
+                .toList()
         }
+    val items = withContext(Dispatchers.IO) { rows.map { it.toItemView(storage) } }
     val states = items.map { ItemState.fromWire(it.status) }
     call.respond(
         AlbumProgress(
