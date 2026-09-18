@@ -20,6 +20,7 @@ real browser, against the same list.
 | 8 | Aspect ratios rendered without cropping | Fixture album: 2.6:1, 1:1, 4:5, 3:4 | all four uncropped |
 | 9 | Works at 360px wide with no horizontal scroll | Browser at 360px | no horizontal scroll |
 | 10 | Hardcoded colours outside the token block | `grep -rE "#[0-9a-fA-F]{3,8}" web/src --include=*.tsx` | zero |
+| 10b | Hardcoded spacing, radii, type sizes or durations in components | grep for `px`, `rem`, `ms` in component source | zero outside the token file |
 | 11 | Every state rendered: full, processing, failed, empty, PIN, revoked | Six screenshots | six exist |
 | 12 | Typeface families loaded | Network panel | ≤ 1, self-hosted or system |
 
@@ -37,6 +38,13 @@ recorded in the run's notes.
 | 5 | A failed item offers retry and remove without leaving the album | Force a failure with a corrupt file | both reachable |
 | 6 | Creator bundle loaded on the viewer route | Network panel on `/a/{token}` | zero bytes of it |
 | 7 | Works at 360px wide | Browser at 360px | upload, reorder and publish all possible |
+| 8 | Component inventory: every component named, with its responsibility | `site/references/output.md` | exists, and each component has a second use |
+
+## What the winner hands over
+
+`site/references/output.md` says what a run produces: `design/tokens.json`, the generated
+stylesheet, `DESIGN.md` with a reason per decision, and the component inventory. A variant that
+wins on screenshots but cannot hand those over has not won; it has drawn a picture.
 
 ## How a verdict is written
 

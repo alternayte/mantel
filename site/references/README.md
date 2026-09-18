@@ -13,6 +13,7 @@ variant is judged on the same content.
 | `criteria.md` | How a variant is judged. Numbers and tests, never prose |
 | `album/` | Thirteen CC0 photographs and one clip. The fixture album |
 | `album.json` | Provenance for every photograph |
+| `output.md` | What a run hands over: tokens, generated stylesheet, rationale, component inventory |
 
 ## How a run uses this
 
