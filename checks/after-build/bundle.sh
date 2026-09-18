@@ -5,6 +5,8 @@
 #          lands in the viewer's chunk and nobody notices until a phone on 4G does
 # rule: everything the viewer route loads is within the budget in SDD.md 7.3
 # limit: this measures bytes, not speed. LCP is measured by hand in a browser, per the gauntlet.
+# It lives in checks/after-build/ rather than checks/ because it reads the web build, and the
+# checks/ loop runs before anything is built.
 set -euo pipefail
 
 root="$(git rev-parse --show-toplevel)"
