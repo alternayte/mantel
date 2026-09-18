@@ -31,6 +31,7 @@ import com.mantel.app.api.ItemStatus
 import com.mantel.app.api.state
 import com.mantel.app.design.Body
 import com.mantel.app.design.Button
+import com.mantel.app.design.ButtonRow
 import com.mantel.app.design.Card
 import com.mantel.app.design.Field
 import com.mantel.app.design.ItemTile
@@ -43,12 +44,13 @@ import com.mantel.app.design.failStyle
 import com.mantel.app.design.rememberGridReorder
 import com.mantel.app.design.reorderable
 import com.mantel.app.previewModel
+import com.mantel.app.share.ShareSheet
 
 /**
- * One album: what is in it, what is still arriving, and the four things that can be done to an item.
+ * One album: what is in it, what is still arriving, and what can be done to it.
  *
  * Run B chose one workspace over a wizard — drop, watch, publish, with nothing between the creator
- * and the album (DESIGN.md). Sharing is the next milestone; everything else is here.
+ * and the album (DESIGN.md). Everything an album needs happens on this screen.
  */
 @Composable
 fun AlbumScreen(
@@ -56,7 +58,13 @@ fun AlbumScreen(
     upload: UploadStatus?,
     model: AppModel,
 ) {
-    BackHandler(enabled = true) { if (state.selected != null) model.select(null) else model.back() }
+    BackHandler(enabled = true) {
+        when {
+            state.sharing -> model.closeSharing()
+            state.selected != null -> model.select(null)
+            else -> model.back()
+        }
+    }
 
     val grid = rememberLazyGridState()
     val reorder = rememberGridReorder(grid, onMove = model::move, onDrop = model::dropOrder)
@@ -90,7 +98,14 @@ fun AlbumScreen(
             }
         }
 
-        if (state.error != null) Body(state.error, style = failStyle)
+        if (state.error != null && !state.sharing) {
+            Card {
+                Body(state.error, style = failStyle)
+                // Offline is not a failure to report and forget: the same call works later, so the
+                // screen offers it.
+                if (state.retryable) Button(text = "Try again", onClick = model::retry, quiet = true)
+            }
+        }
 
         if (state.album.items.isEmpty()) {
             Body("Nothing in this album yet.", style = captionStyle)
@@ -126,9 +141,25 @@ fun AlbumScreen(
             }
         }
 
-        Button(text = "Add photos", onClick = model::pickMedia, enabled = !state.busy)
+        ButtonRow {
+            Button(
+                text = "Add photos",
+                onClick = model::pickMedia,
+                modifier = Modifier.weight(1f),
+                enabled = !state.busy,
+            )
+            Button(
+                text = if (state.liveLinks.isEmpty()) "Share" else "Links (${state.liveLinks.size})",
+                onClick = model::openSharing,
+                modifier = Modifier.weight(1f),
+                enabled = !state.busy,
+                quiet = true,
+            )
+        }
         Spacer(Modifier.height(Tokens.Space.gutter))
     }
+
+    if (state.sharing) ShareSheet(state, model)
 
     state.selectedItem?.let { item ->
         ItemSheet(
@@ -207,6 +238,33 @@ private fun UploadFailedPreview() =
     AlbumScreen(
         Screen.Album(Samples.album),
         UploadStatus("", 0, 0, 0, 0, failed = "Your storage quota is full"),
+        previewModel(),
+    )
+
+@Preview(name = "Album: offline", widthDp = 360, heightDp = 720)
+@Composable
+private fun OfflineAlbumPreview() =
+    AlbumScreen(
+        Screen.Album(
+            Samples.album,
+            error = "That server did not answer. You may be offline.",
+            retryable = true,
+        ),
+        null,
+        previewModel(),
+    )
+
+/** Nothing is shared yet, which is every album until somebody decides otherwise. */
+@Preview(name = "Share: not published", widthDp = 360, heightDp = 720)
+@Composable
+private fun NotPublishedPreview() = AlbumScreen(Screen.Album(Samples.album, sharing = true), null, previewModel())
+
+@Preview(name = "Share: links", widthDp = 360, heightDp = 720)
+@Composable
+private fun ShareLinksPreview() =
+    AlbumScreen(
+        Screen.Album(Samples.album, sharing = true, links = Samples.links),
+        null,
         previewModel(),
     )
 

@@ -39,6 +39,22 @@ check-android:
     cd android
     ../gradlew --console=plain ktlintCheck testDebugUnitTest assembleDebug
 
+# recipe: release-android
+# Build the signed release APK. Needs the keystore in the environment: MANTEL_KEYSTORE, MANTEL_KEYSTORE_PASSWORD, MANTEL_KEY_ALIAS. See docs/android.md.
+release-android:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${MANTEL_KEYSTORE:?set MANTEL_KEYSTORE to the keystore path. docs/android.md says how to make one.}"
+    : "${MANTEL_KEYSTORE_PASSWORD:?set MANTEL_KEYSTORE_PASSWORD}"
+    : "${MANTEL_KEY_ALIAS:?set MANTEL_KEY_ALIAS}"
+    cd android
+    ../gradlew --console=plain assembleRelease
+    apk=build/outputs/apk/release/mantel-android-release.apk
+    # The newest build-tools: an old apksigner does not know the newer signature schemes.
+    signer="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+    "$signer" verify --print-certs "$apk" | head -4
+    echo "signed: android/$apk"
+
 # recipe: check-slow
 # The checks too slow for every `just check`. Runs the commands quoted in agent files, then builds the image and drives a real upload through it. Needs Docker.
 check-slow:

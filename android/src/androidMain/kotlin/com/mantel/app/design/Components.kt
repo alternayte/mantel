@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -212,6 +213,48 @@ fun Button(
         )
     }
 }
+
+/**
+ * A choice between a few named things, in one row. It is not a dropdown: four options that fit on
+ * the screen are four options, and hiding them behind a control is a tap nobody needed.
+ */
+@Composable
+fun <T> Choices(
+    options: List<Pair<String, T>>,
+    selected: T,
+    onSelect: (T) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        options.forEach { (label, value) ->
+            val chosen = value == selected
+            Box(
+                Modifier
+                    .weight(1f)
+                    .background(
+                        if (chosen) Tokens.Colour.ink else Tokens.Colour.surface,
+                        RoundedCornerShape(Tokens.Radius.card),
+                    )
+                    .border(1.dp, Tokens.Colour.line, RoundedCornerShape(Tokens.Radius.card))
+                    .clickable { onSelect(value) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                BasicText(
+                    label,
+                    style = captionStyle.copy(color = if (chosen) Tokens.Colour.surface else Tokens.Colour.muted),
+                )
+            }
+        }
+    }
+}
+
+/** Two controls side by side, when neither is the lesser of the two. */
+@Composable
+fun ButtonRow(
+    modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) = Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), content = content)
 
 // --- previews -------------------------------------------------------------------------------
 //

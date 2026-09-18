@@ -82,6 +82,7 @@ The documentation is also published at **[mantel.nate-andert.workers.dev](https:
 | [self-hosting.md](docs/self-hosting.md) | Running it for real: compose, storage, backups, upgrades |
 | [api.md](docs/api.md) | The REST API, which is the same one the web client uses |
 | [agents.md](docs/agents.md) | Scoped tokens, `llms.txt`, the MCP server |
+| [android.md](docs/android.md) | The Android creator app: installing it, and building it signed |
 | [operations/storage.md](docs/operations/storage.md) | Bucket lifecycle, incomplete uploads, reconciliation |
 | [site/references/](site/references/) | The gauntlet's reference set, criteria and fixture album |
 | [DESIGN.md](DESIGN.md) | The frozen design: tokens, and the reason for each decision |
@@ -99,7 +100,7 @@ to.
 | Scoped API tokens, `llms.txt`, OpenAPI, MCP | Done |
 | Marketing site and documentation | Published |
 | Public demo instance | Intended, no date |
-| Android creator app (KMP + Compose) | 0.2.0 |
+| Android creator app (KMP + Compose), sideloaded | 0.2.0 |
 | iOS | Not planned |
 | HLS adaptive streaming | Not scheduled |
 | Family spaces, face recognition, guest upload, vanity slugs | Not scheduled |

@@ -76,9 +76,17 @@ fun AlbumsScreen(
             )
         }
 
-        if (state.error != null) Body(state.error, style = failStyle)
+        if (state.error != null) {
+            Card {
+                Body(state.error, style = failStyle)
+                if (state.retryable) Button(text = "Try again", onClick = model::retry, quiet = true)
+            }
+        }
 
-        if (state.albums.isEmpty() && !state.busy) {
+        // Only when the server actually said there are none. A failed request is not an empty
+        // account, and telling somebody their albums are gone because the network dropped is worse
+        // than saying nothing.
+        if (state.albums.isEmpty() && !state.busy && state.error == null) {
             Body("No albums yet. The first one is a title and forty photographs.", style = captionStyle)
         }
 
@@ -124,3 +132,16 @@ private fun AlbumsPreview() = AlbumsScreen(Screen.Albums(me = Samples.me, albums
 @Preview(name = "Albums: none yet", widthDp = 360, heightDp = 720)
 @Composable
 private fun NoAlbumsPreview() = AlbumsScreen(Screen.Albums(me = Samples.me), previewModel())
+
+@Preview(name = "Albums: offline", widthDp = 360, heightDp = 720)
+@Composable
+private fun OfflineAlbumsPreview() =
+    AlbumsScreen(
+        Screen.Albums(
+            me = Samples.me,
+            albums = Samples.albums,
+            error = "That server did not answer. You may be offline.",
+            retryable = true,
+        ),
+        previewModel(),
+    )

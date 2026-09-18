@@ -11,6 +11,7 @@ import com.mantel.app.api.ItemStatus
 import com.mantel.app.api.ItemView
 import com.mantel.app.api.MantelApi
 import com.mantel.app.api.Me
+import com.mantel.app.api.ShareLinkView
 import com.mantel.app.api.SignInMethods
 import com.mantel.app.api.state
 import com.mantel.app.auth.Pkce
@@ -48,16 +49,25 @@ sealed interface Screen {
         val newTitle: String = "",
         val busy: Boolean = false,
         val error: String? = null,
+        val retryable: Boolean = false,
     ) : Screen
 
     data class Album(
         val album: AlbumView,
         val selected: String? = null,
         val caption: String = "",
+        val links: List<ShareLinkView> = emptyList(),
+        val sharing: Boolean = false,
+        val pin: String = "",
+        val expiresInDays: Int? = null,
         val busy: Boolean = false,
         val error: String? = null,
+        val retryable: Boolean = false,
     ) : Screen {
         val selectedItem: ItemView? get() = album.items.firstOrNull { it.id == selected }
+
+        /** A link nobody has revoked and nothing has expired: what a recipient can still open. */
+        val liveLinks: List<ShareLinkView> get() = links.filter { it.live }
 
         /** An album with anything still moving is worth asking about again. */
         val settling: Boolean
@@ -82,6 +92,9 @@ sealed interface Effect {
     data class OpenBrowser(val url: String) : Effect
 
     data object PickMedia : Effect
+
+    /** The system share sheet. A link is shared through whatever the person already uses. */
+    data class ShareText(val url: String) : Effect
 }
 
 class AppModel(
@@ -125,14 +138,37 @@ class AppModel(
                 return@launch
             }
             if (session != null) {
-                val me = runCatching { api(serverUrl, session).use { it.me() } }.getOrNull()
-                if (me != null) {
+                try {
+                    val me = api(serverUrl, session).use { it.me() }
+                    settings.setMe(me)
                     account = me
                     _screen.value = Screen.Albums(me)
                     refreshAlbums()
                     return@launch
+                } catch (e: java.io.IOException) {
+                    // Offline is not signed out. The session is still good, so the app opens on
+                    // the account it last saw and offers to ask again.
+                    val cached = settings.me.first()
+                    if (cached != null) {
+                        account = cached
+                        _screen.value =
+                            Screen.Albums(
+                                cached,
+                                error = "That server did not answer. You may be offline.",
+                                retryable = true,
+                            )
+                        return@launch
+                    }
+                    _screen.value =
+                        Screen.SignIn(
+                            serverUrl = serverUrl,
+                            error = "That server did not answer. You may be offline.",
+                        )
+                    return@launch
+                } catch (e: ApiException) {
+                    // The server answered and refused: this session is over.
+                    settings.clearSession()
                 }
-                settings.clearSession()
             }
             _screen.value = Screen.SignIn(serverUrl = serverUrl)
             loadMethods(serverUrl)
@@ -205,8 +241,10 @@ class AppModel(
             attempt(serverUrl) { api ->
                 val session = api.exchange(code, verifier).session
                 settings.setSession(session)
-                account = api(serverUrl, session).use { it.me() }
-                _screen.value = Screen.Albums(account!!)
+                val me = api(serverUrl, session).use { it.me() }
+                settings.setMe(me)
+                account = me
+                _screen.value = Screen.Albums(me)
                 refreshAlbums()
             }
         }
@@ -269,13 +307,16 @@ class AppModel(
         val serverUrl = settings.serverUrl.first() ?: return
         val session = settings.session.first() ?: return
         try {
-            val album = api(serverUrl, session).use { it.album(albumId) }
-            _screen.value = Screen.Album(album)
+            val (album, links) =
+                api(serverUrl, session).use { it.album(albumId) to it.shareLinks(albumId) }
+            _screen.value = Screen.Album(album, links = links)
             watch(albumId)
         } catch (e: ApiException) {
             _screen.update<Screen.Albums> { it.copy(busy = false, error = e.message) }
         } catch (e: java.io.IOException) {
-            _screen.update<Screen.Albums> { it.copy(busy = false, error = "That server did not answer") }
+            _screen.update<Screen.Albums> {
+                it.copy(busy = false, error = "That server did not answer. You may be offline.", retryable = true)
+            }
         }
     }
 
@@ -370,6 +411,59 @@ class AppModel(
         }
     }
 
+    // --- sharing ------------------------------------------------------------------------------
+
+    fun openSharing() {
+        _screen.update<Screen.Album> { it.copy(sharing = true, selected = null, error = null) }
+    }
+
+    fun closeSharing() {
+        _screen.update<Screen.Album> { it.copy(sharing = false, pin = "", expiresInDays = null, error = null) }
+    }
+
+    fun setPin(pin: String) {
+        _screen.update<Screen.Album> { it.copy(pin = pin.filter { c -> c.isDigit() }.take(12), error = null) }
+    }
+
+    fun setExpiry(days: Int?) {
+        _screen.update<Screen.Album> { it.copy(expiresInDays = days, error = null) }
+    }
+
+    /** Creating the first live link is what publishes an album; there is no separate publish. */
+    fun createShareLink() {
+        val state = _screen.value as? Screen.Album ?: return
+        val pin = state.pin.ifBlank { null }
+        scope.launch {
+            onAlbum { api, album ->
+                api.createShareLink(album.id, pin, state.expiresInDays)
+                val links = api.shareLinks(album.id)
+                val fresh = api.album(album.id)
+                _screen.update<Screen.Album> {
+                    it.copy(album = fresh, links = links, pin = "", expiresInDays = null, busy = false)
+                }
+            }
+        }
+    }
+
+    /**
+     * Revocation is immediate and total: the link 404s from the next request, and nothing about it
+     * is recoverable (SDD.md 4.3). So the screen asks first.
+     */
+    fun revokeShareLink(shareLinkId: String) {
+        scope.launch {
+            onAlbum { api, album ->
+                api.revokeShareLink(shareLinkId)
+                val links = api.shareLinks(album.id)
+                val fresh = api.album(album.id)
+                _screen.update<Screen.Album> { it.copy(album = fresh, links = links, busy = false) }
+            }
+        }
+    }
+
+    fun shareUrl(url: String) {
+        _effects.value = Effect.ShareText(url)
+    }
+
     // --- upload -------------------------------------------------------------------------------
 
     fun pickMedia() {
@@ -421,6 +515,15 @@ class AppModel(
         }
     }
 
+    /** The one control an offline screen needs. It re-runs whatever this screen reads. */
+    fun retry() {
+        when (_screen.value) {
+            is Screen.Albums -> refreshAlbums()
+            is Screen.Album -> refreshAlbum()
+            else -> Unit
+        }
+    }
+
     fun refreshAlbum() {
         val state = _screen.value as? Screen.Album ?: return
         scope.launch { onAlbum { api, _ -> reload(api, state.album.id) { it } } }
@@ -448,30 +551,37 @@ class AppModel(
         block: (Screen.Album) -> Screen.Album,
     ) {
         val album = api.album(albumId)
-        _screen.update<Screen.Album> { block(it.copy(album = album, busy = false, error = null)) }
+        val links = api.shareLinks(albumId)
+        _screen.update<Screen.Album> {
+            block(it.copy(album = album, links = links, busy = false, error = null, retryable = false))
+        }
     }
 
     // --- plumbing -----------------------------------------------------------------------------
 
     private suspend fun onAlbums(block: suspend (MantelApi, Me) -> Unit) {
         val state = _screen.value as? Screen.Albums ?: return
-        _screen.update<Screen.Albums> { it.copy(busy = true, error = null) }
+        _screen.update<Screen.Albums> { it.copy(busy = true, error = null, retryable = false) }
         withApi(
-            onApiError = { message -> _screen.update<Screen.Albums> { it.copy(busy = false, error = message) } },
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Albums> { it.copy(busy = false, error = message, retryable = retryable) }
+            },
         ) { api -> block(api, state.me) }
     }
 
     private suspend fun onAlbum(block: suspend (MantelApi, AlbumView) -> Unit) {
         val state = _screen.value as? Screen.Album ?: return
-        _screen.update<Screen.Album> { it.copy(busy = true, error = null) }
+        _screen.update<Screen.Album> { it.copy(busy = true, error = null, retryable = false) }
         withApi(
-            onApiError = { message -> _screen.update<Screen.Album> { it.copy(busy = false, error = message) } },
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Album> { it.copy(busy = false, error = message, retryable = retryable) }
+            },
         ) { api -> block(api, state.album) }
         _screen.update<Screen.Album> { it.copy(busy = false) }
     }
 
     private suspend fun withApi(
-        onApiError: (String) -> Unit,
+        onApiError: (String, Boolean) -> Unit,
         block: suspend (MantelApi) -> Unit,
     ) {
         val serverUrl = settings.serverUrl.first() ?: return
@@ -479,9 +589,11 @@ class AppModel(
         try {
             api(serverUrl, session).use { block(it) }
         } catch (e: ApiException) {
-            if (e.code == "unauthenticated") signOut() else onApiError(e.message)
+            if (e.code == "unauthenticated") signOut() else onApiError(e.message, false)
         } catch (e: java.io.IOException) {
-            onApiError("That server did not answer")
+            // Offline, or the server is down. Either way the same call will work later, so the
+            // screen offers it rather than making the person guess.
+            onApiError("That server did not answer. You may be offline.", true)
         }
     }
 

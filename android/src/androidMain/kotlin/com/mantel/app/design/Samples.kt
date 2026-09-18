@@ -4,6 +4,7 @@ import com.mantel.app.api.AlbumSummary
 import com.mantel.app.api.AlbumView
 import com.mantel.app.api.ItemView
 import com.mantel.app.api.Me
+import com.mantel.app.api.ShareLinkView
 
 /**
  * The data the `@Preview` functions render.
@@ -66,6 +67,36 @@ object Samples {
             createdAt = "2026-08-03T09:00:00Z",
             updatedAt = "2026-08-03T09:40:00Z",
             items = items,
+        )
+
+    val links =
+        listOf(
+            ShareLinkView(
+                id = "s1",
+                url = "https://albums.example.com/a/7Qm2XvKp9TdR",
+                token = "7Qm2XvKp9TdR",
+                hasPin = false,
+                createdAt = "2026-08-03T10:00:00Z",
+                live = true,
+            ),
+            ShareLinkView(
+                id = "s2",
+                url = "https://albums.example.com/a/Bn4ZcW8sLyHe",
+                token = "Bn4ZcW8sLyHe",
+                hasPin = true,
+                expiresAt = "2026-11-01T10:00:00Z",
+                createdAt = "2026-08-04T10:00:00Z",
+                live = true,
+            ),
+            ShareLinkView(
+                id = "s3",
+                url = "https://albums.example.com/a/Kd9RtY2mQxVu",
+                token = "Kd9RtY2mQxVu",
+                hasPin = false,
+                revokedAt = "2026-08-06T10:00:00Z",
+                createdAt = "2026-08-05T10:00:00Z",
+                live = false,
+            ),
         )
 
     val albums =

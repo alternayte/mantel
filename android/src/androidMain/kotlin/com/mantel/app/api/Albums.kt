@@ -87,6 +87,22 @@ data class UploadProgress(
 )
 
 /**
+ * A share link, as the creator sees it. `token` is the unguessable part of the URL and leaks with
+ * it; the PIN does not, which is the whole reason the PIN exists (SDD.md 4.3).
+ */
+@Serializable
+data class ShareLinkView(
+    val id: String,
+    val url: String,
+    val token: String,
+    val hasPin: Boolean,
+    val expiresAt: String? = null,
+    val revokedAt: String? = null,
+    val createdAt: String,
+    val live: Boolean,
+)
+
+/**
  * An item's processing state. The wire values are the server's enum; the app matches on them rather
  * than on a message, because the message is for people (SDD.md 6.4).
  */

@@ -43,6 +43,16 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 }
 
+/**
+ * The release keystore, from the environment.
+ *
+ * The app is sideloaded (SDD.md 10), so the signature is the only thing that says an update is from
+ * the same author as the install. The key never enters the repository: the build reads it from the
+ * environment, and a build without one produces an unsigned APK rather than a silently different
+ * signature. `docs/android.md` says how to make one.
+ */
+val keystorePath: String? = System.getenv("MANTEL_KEYSTORE")
+
 android {
     namespace = "com.mantel.app"
     compileSdk = 35
@@ -63,9 +73,23 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
+    signingConfigs {
+        if (keystorePath != null) {
+            create("release") {
+                storeFile = file(keystorePath)
+                storePassword = System.getenv("MANTEL_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("MANTEL_KEY_ALIAS")
+                keyPassword = System.getenv("MANTEL_KEY_PASSWORD") ?: System.getenv("MANTEL_KEYSTORE_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         named("release") {
+            // R8 is off. The app is sideloaded from a release page, not competing for a download
+            // over a mobile connection, and a shrinker needs a reason and a measurement.
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
 }

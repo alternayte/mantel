@@ -153,6 +153,27 @@ class MantelApi(
         client.post("$base/api/albums/$albumId/items/$itemId/retry") { authorize() }.require<Unit>()
     }
 
+    // --- sharing --------------------------------------------------------------------------------
+
+    suspend fun shareLinks(albumId: String): List<ShareLinkView> =
+        client.get("$base/api/albums/$albumId/share-links") { authorize() }.require()
+
+    /** Creating the first live link is what publishes an album; there is no separate publish. */
+    suspend fun createShareLink(
+        albumId: String,
+        pin: String?,
+        expiresInDays: Int?,
+    ): ShareLinkView =
+        client.post("$base/api/albums/$albumId/share-links") {
+            authorize()
+            contentType(ContentType.Application.Json)
+            setBody(CreateShareLinkRequest(pin, expiresInDays))
+        }.require()
+
+    suspend fun revokeShareLink(shareLinkId: String) {
+        client.delete("$base/api/share-links/$shareLinkId") { authorize() }.require<Unit>()
+    }
+
     // --- upload ---------------------------------------------------------------------------------
 
     suspend fun uploadIntent(
@@ -248,6 +269,9 @@ class MantelApi(
 
     @Serializable
     private data class ReorderRequest(val itemIds: List<String>)
+
+    @Serializable
+    private data class CreateShareLinkRequest(val pin: String? = null, val expiresInDays: Int? = null)
 
     @Serializable
     private data class UploadIntentRequest(val files: List<DeclaredFile>)

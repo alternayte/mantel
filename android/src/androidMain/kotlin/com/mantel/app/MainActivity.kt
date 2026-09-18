@@ -63,6 +63,10 @@ class MainActivity : ComponentActivity() {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                     model.effectHandled()
                 }
+                is Effect.ShareText -> {
+                    share(pending.url)
+                    model.effectHandled()
+                }
                 null -> Unit
             }
 
@@ -89,6 +93,19 @@ class MainActivity : ComponentActivity() {
         if (data.scheme != "mantel" || data.host != "auth") return
         val code = data.getQueryParameter("code") ?: return
         model.completeSignIn(code)
+    }
+
+    /**
+     * The system share sheet. A link is sent through whatever the person already uses to send
+     * things; Mantel has no opinion about it and no way to know which one was chosen.
+     */
+    private fun share(url: String) {
+        val send =
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, url)
+            }
+        startActivity(Intent.createChooser(send, null))
     }
 
     /**
