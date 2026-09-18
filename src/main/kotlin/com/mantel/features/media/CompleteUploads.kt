@@ -40,19 +40,26 @@ suspend fun completeUploads(
     call.respond(completeUploadsFor(caller, albumIdFrom(call), request.itemIds, storage))
 }
 
+/** The same completion for media that went to the library rather than into an album. */
+suspend fun completeLibraryUploads(
+    call: ApplicationCall,
+    storage: ObjectStorage,
+) {
+    val caller = com.mantel.features.agent.requireScope(call, com.mantel.features.agent.Scope.ALBUMS_WRITE)
+    val request = call.receive<CompleteUploadsRequest>()
+    call.respond(completeUploadsFor(caller, null, request.itemIds, storage))
+}
+
 /** The command. The route above and the MCP tool both call this and nothing else. */
 suspend fun completeUploadsFor(
     caller: com.mantel.features.agent.Caller,
-    albumIdValue: com.mantel.features.album.AlbumId,
+    albumIdValue: com.mantel.features.album.AlbumId?,
     requestedIds: List<String>,
     storage: ObjectStorage,
 ): CompleteUploadsResponse {
-    val album =
-        com.mantel.features.album.requireOwnAlbumFor(
-            caller.demand(com.mantel.features.agent.Scope.ALBUMS_WRITE),
-            albumIdValue,
-        )
-    val albumId = album[Albums.id]
+    val owner = caller.demand(com.mantel.features.agent.Scope.ALBUMS_WRITE)
+    val album = albumIdValue?.let { com.mantel.features.album.requireOwnAlbumFor(owner, it) }
+    val accountId = album?.get(Albums.accountId) ?: owner.accountId
     val itemIds =
         requestedIds.map { raw ->
             runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
@@ -64,7 +71,7 @@ suspend fun completeUploadsFor(
         db {
             MediaItems.selectAll()
                 .where {
-                    (MediaItems.albumId eq albumId) and
+                    (MediaItems.accountId eq accountId) and
                         (MediaItems.id inList itemIds) and
                         (MediaItems.status eq ItemState.PENDING_UPLOAD)
                 }

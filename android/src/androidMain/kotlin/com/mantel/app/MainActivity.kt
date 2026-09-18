@@ -22,6 +22,9 @@ import com.mantel.app.album.AlbumsScreen
 import com.mantel.app.auth.SignInScreen
 import com.mantel.app.design.Page
 import com.mantel.app.design.Title
+import com.mantel.app.library.LibraryScreen
+import com.mantel.app.media.DeviceMedia
+import com.mantel.app.media.SyncScreen
 
 /**
  * One activity. Sign-in leaves the app for a browser and comes back through the deep link, and
@@ -41,6 +44,15 @@ class MainActivity : ComponentActivity() {
 
     private val notifications =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    /**
+     * Reading the device's media. The photo picker needs none of this, so an install that never
+     * turns backup on is never asked.
+     */
+    private val mediaAccess =
+        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { granted ->
+            model.mediaAccess(granted.values.any { it })
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,6 +75,10 @@ class MainActivity : ComponentActivity() {
                     picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
                     model.effectHandled()
                 }
+                is Effect.AskForMediaAccess -> {
+                    mediaAccess.launch(DeviceMedia.permissions().toTypedArray())
+                    model.effectHandled()
+                }
                 is Effect.ShareText -> {
                     share(pending.url)
                     model.effectHandled()
@@ -74,6 +90,8 @@ class MainActivity : ComponentActivity() {
                 is Screen.Starting -> Page { Title("Mantel") }
                 is Screen.SignIn -> SignInScreen(current, model)
                 is Screen.Albums -> AlbumsScreen(current, model)
+                is Screen.Library -> LibraryScreen(current, model)
+                is Screen.Sync -> SyncScreen(current, model)
                 is Screen.Album -> AlbumScreen(current, upload, model)
             }
         }

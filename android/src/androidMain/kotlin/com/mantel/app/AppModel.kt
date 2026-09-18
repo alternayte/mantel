@@ -16,6 +16,10 @@ import com.mantel.app.api.SignInMethods
 import com.mantel.app.api.state
 import com.mantel.app.auth.Pkce
 import com.mantel.app.auth.Settings
+import com.mantel.app.media.DeviceMedia
+import com.mantel.app.media.MediaFolder
+import com.mantel.app.media.SyncSettings
+import com.mantel.app.media.SyncWorker
 import com.mantel.app.media.UploadWorker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -50,6 +54,28 @@ sealed interface Screen {
         val busy: Boolean = false,
         val error: String? = null,
         val retryable: Boolean = false,
+    ) : Screen
+
+    data class Library(
+        val items: List<ItemView> = emptyList(),
+        val totalItems: Long = 0,
+        val selected: Set<String> = emptySet(),
+        val albums: List<AlbumSummary> = emptyList(),
+        val addingTo: Boolean? = null,
+        val busy: Boolean = false,
+        val error: String? = null,
+        val retryable: Boolean = false,
+    ) : Screen
+
+    data class Sync(
+        val enabled: Boolean = false,
+        val folders: List<MediaFolder> = emptyList(),
+        val selected: Set<String> = emptySet(),
+        val unmeteredOnly: Boolean = true,
+        val whileCharging: Boolean = true,
+        val lastRunAt: Long = 0,
+        val busy: Boolean = false,
+        val error: String? = null,
     ) : Screen
 
     data class Album(
@@ -92,6 +118,9 @@ sealed interface Effect {
     data class OpenBrowser(val url: String) : Effect
 
     data object PickMedia : Effect
+
+    /** Reading the device's media, which sync needs and the picker does not. */
+    data object AskForMediaAccess : Effect
 
     /** The system share sheet. A link is shared through whatever the person already uses. */
     data class ShareText(val url: String) : Effect
@@ -299,6 +328,182 @@ class AppModel(
         }
     }
 
+    // --- backup -------------------------------------------------------------------------------
+
+    private val sync = SyncSettings(this.context)
+
+    fun openSync() {
+        watching?.cancel()
+        _screen.value = Screen.Sync()
+        // The worker writes when it last ran, so the screen follows the settings rather than
+        // reading them once and then telling the person something that stopped being true.
+        watching =
+            scope.launch {
+                sync.state.collect { state ->
+                    val known = (_screen.value as? Screen.Sync)?.folders ?: emptyList()
+                    _screen.update<Screen.Sync> {
+                        it.copy(
+                            enabled = state.enabled,
+                            selected = state.folders,
+                            unmeteredOnly = state.unmeteredOnly,
+                            whileCharging = state.whileCharging,
+                            lastRunAt = state.lastRunAt,
+                        )
+                    }
+                    if (state.enabled && known.isEmpty()) loadFolders()
+                }
+            }
+    }
+
+    /**
+     * Turning it on is the moment the media permission means something, so that is when it is asked
+     * for. An install that never turns sync on is never asked for anything.
+     */
+    fun toggleSync() {
+        val state = _screen.value as? Screen.Sync ?: return
+        if (!state.enabled) {
+            _effects.value = Effect.AskForMediaAccess
+            return
+        }
+        scope.launch {
+            sync.setEnabled(false)
+            SyncWorker.schedule(context, sync.state.first())
+            _screen.update<Screen.Sync> { it.copy(enabled = false, folders = emptyList()) }
+        }
+    }
+
+    /** The answer to the permission request. Refused means sync stays off and says so. */
+    fun mediaAccess(granted: Boolean) {
+        scope.launch {
+            if (!granted) {
+                _screen.update<Screen.Sync> {
+                    it.copy(error = "Backup needs permission to read this phone's photographs.")
+                }
+                return@launch
+            }
+            sync.setEnabled(true)
+            // Camera, and nothing else, until somebody says otherwise.
+            val folders = DeviceMedia.folders(context)
+            val current = sync.state.first()
+            if (current.folders.isEmpty()) {
+                val camera = folders.filter { it.name == DeviceMedia.CAMERA }.map { it.id }.toSet()
+                sync.setFolders(camera)
+            }
+            val settled = sync.state.first()
+            SyncWorker.schedule(context, settled)
+            SyncWorker.runNow(context)
+            _screen.update<Screen.Sync> {
+                it.copy(enabled = true, folders = folders, selected = settled.folders, error = null)
+            }
+        }
+    }
+
+    private suspend fun loadFolders() {
+        val folders = DeviceMedia.folders(context)
+        _screen.update<Screen.Sync> { it.copy(folders = folders) }
+    }
+
+    fun toggleFolder(folderId: String) {
+        val state = _screen.value as? Screen.Sync ?: return
+        val next = state.selected.toMutableSet()
+        if (!next.add(folderId)) next.remove(folderId)
+        scope.launch {
+            sync.setFolders(next)
+            _screen.update<Screen.Sync> { it.copy(selected = next) }
+        }
+    }
+
+    fun setUnmeteredOnly(value: Boolean) {
+        scope.launch {
+            sync.setUnmeteredOnly(value)
+            SyncWorker.schedule(context, sync.state.first())
+            _screen.update<Screen.Sync> { it.copy(unmeteredOnly = value) }
+        }
+    }
+
+    fun setWhileCharging(value: Boolean) {
+        scope.launch {
+            sync.setWhileCharging(value)
+            SyncWorker.schedule(context, sync.state.first())
+            _screen.update<Screen.Sync> { it.copy(whileCharging = value) }
+        }
+    }
+
+    fun syncNow() {
+        SyncWorker.runNow(context)
+    }
+
+    // --- library ------------------------------------------------------------------------------
+
+    fun openLibrary() {
+        scope.launch {
+            watching?.cancel()
+            _screen.value = Screen.Library()
+            refreshLibrary()
+        }
+    }
+
+    private fun refreshLibrary() {
+        scope.launch {
+            onLibrary { api ->
+                val page = api.library()
+                val albums = api.albums()
+                _screen.update<Screen.Library> {
+                    it.copy(items = page.items, totalItems = page.totalItems, albums = albums, busy = false)
+                }
+            }
+        }
+    }
+
+    fun toggleSelection(itemId: String) {
+        _screen.update<Screen.Library> { state ->
+            val next = state.selected.toMutableSet()
+            if (!next.add(itemId)) next.remove(itemId)
+            state.copy(selected = next, addingTo = null, error = null)
+        }
+    }
+
+    fun chooseAlbum() {
+        _screen.update<Screen.Library> { it.copy(addingTo = true) }
+    }
+
+    fun cancelAdd() {
+        _screen.update<Screen.Library> { it.copy(addingTo = null) }
+    }
+
+    /** Selecting library media into an album. Nothing is copied and nothing costs quota. */
+    fun addSelectionTo(albumId: String) {
+        val state = _screen.value as? Screen.Library ?: return
+        scope.launch {
+            onLibrary { api ->
+                api.addToAlbum(albumId, state.selected.toList())
+                _screen.update<Screen.Library> { it.copy(selected = emptySet(), addingTo = null, busy = false) }
+                open(albumId)
+            }
+        }
+    }
+
+    /** The only deletion that removes bytes. An album only ever held a reference to these. */
+    fun deleteSelection() {
+        val state = _screen.value as? Screen.Library ?: return
+        scope.launch {
+            onLibrary { api ->
+                state.selected.forEach { api.deleteFromLibrary(it) }
+                _screen.update<Screen.Library> { it.copy(selected = emptySet(), busy = false) }
+                refreshLibrary()
+            }
+        }
+    }
+
+    private suspend fun onLibrary(block: suspend (MantelApi) -> Unit) {
+        _screen.update<Screen.Library> { it.copy(busy = true, error = null, retryable = false) }
+        withApi(
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Library> { it.copy(busy = false, error = message, retryable = retryable) }
+            },
+        ) { api -> block(api) }
+    }
+
     fun openAlbum(albumId: String) {
         scope.launch { open(albumId) }
     }
@@ -320,7 +525,7 @@ class AppModel(
         }
     }
 
-    /** Leaves the album. The albums behind it are re-read, because one of them has just changed. */
+    /** Leaves a screen for the albums behind it, which are re-read because one may have changed. */
     fun back() {
         val me = account ?: return
         watching?.cancel()
@@ -373,7 +578,7 @@ class AppModel(
         val itemId = state.selected ?: return
         scope.launch {
             onAlbum { api, album ->
-                api.deleteItem(album.id, itemId)
+                api.removeFromAlbum(album.id, itemId)
                 reload(api, album.id) { it.copy(selected = null) }
             }
         }
@@ -520,6 +725,7 @@ class AppModel(
         when (_screen.value) {
             is Screen.Albums -> refreshAlbums()
             is Screen.Album -> refreshAlbum()
+            is Screen.Library -> refreshLibrary()
             else -> Unit
         }
     }

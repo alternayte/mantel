@@ -44,14 +44,14 @@ class ViewerTest {
 
             assertEquals(2, manifest.itemCount)
             assertEquals(1, manifest.readyCount)
-            val ready = manifest.items.single { it.status == "ready" }
+            val ready = manifest.items.single { it.status == "shareable" }
             assertNotNull(ready.thumbUrl)
             assertNotNull(ready.displayWebpUrl)
             assertEquals(2400, ready.width)
 
             // A processing item appears with its state and no URLs, so the viewer shows a
             // placeholder rather than a broken grid.
-            val waiting = manifest.items.single { it.status != "ready" }
+            val waiting = manifest.items.single { it.status != "shareable" }
             assertEquals("pending_upload", waiting.status)
             assertNull(waiting.thumbUrl)
             assertNull(waiting.displayWebpUrl)

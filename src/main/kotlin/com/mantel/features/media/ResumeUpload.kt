@@ -45,12 +45,37 @@ suspend fun getUploadProgress(
     storage: ObjectStorage,
 ) {
     val album = requireOwnAlbum(call, albumIdFrom(call))
-    val itemId = itemIdFrom(call)
+    respondWithProgress(call, album[Albums.accountId], itemIdFrom(call), config, storage)
+}
 
+/**
+ * The same answer for media that has no album. An interrupted backup is the common case for a
+ * large file, and it must not depend on the file having been selected into something.
+ */
+suspend fun getLibraryUploadProgress(
+    call: ApplicationCall,
+    config: Config,
+    storage: ObjectStorage,
+) {
+    val accountId =
+        com.mantel.features.agent.requireScope(call, com.mantel.features.agent.Scope.ALBUMS_WRITE).accountId
+    val itemId =
+        call.parameters["itemId"]?.let { runCatching { ItemId(java.util.UUID.fromString(it)) }.getOrNull() }
+            ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
+    respondWithProgress(call, accountId, itemId, config, storage)
+}
+
+private suspend fun respondWithProgress(
+    call: ApplicationCall,
+    accountId: com.mantel.features.account.AccountId,
+    itemId: ItemId,
+    config: Config,
+    storage: ObjectStorage,
+) {
     val item =
         db {
             MediaItems.selectAll()
-                .where { (MediaItems.id eq itemId) and (MediaItems.albumId eq album[Albums.id]) }
+                .where { (MediaItems.id eq itemId) and (MediaItems.accountId eq accountId) }
                 .singleOrNull()
         } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
 

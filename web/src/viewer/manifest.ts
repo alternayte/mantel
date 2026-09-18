@@ -1,5 +1,5 @@
 /** The shape the API sends. Mirrors Manifest in features/viewer/Manifest.kt. */
-export type ItemStatus = 'pending_upload' | 'uploaded' | 'processing' | 'ready' | 'failed'
+export type ItemStatus = 'pending_upload' | 'uploaded' | 'processing' | 'backed_up' | 'shareable' | 'failed'
 
 export type Item = {
   id: string
@@ -69,7 +69,7 @@ export async function unlock(token: string, pin: string): Promise<'ok' | 'wrong'
 
 /** An item with pixels behind it. Anything else is a placeholder in the same position. */
 export function isReady(item: Item): boolean {
-  return item.status === 'ready' && Boolean(item.thumbUrl)
+  return item.status === 'shareable' && Boolean(item.thumbUrl)
 }
 
 export function ratioOf(item: Item): number {

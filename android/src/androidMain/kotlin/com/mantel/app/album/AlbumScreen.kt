@@ -156,6 +156,12 @@ fun AlbumScreen(
                 quiet = true,
             )
         }
+        Button(
+            text = "Add from library",
+            onClick = model::openLibrary,
+            enabled = !state.busy,
+            quiet = true,
+        )
         Spacer(Modifier.height(Tokens.Space.gutter))
     }
 

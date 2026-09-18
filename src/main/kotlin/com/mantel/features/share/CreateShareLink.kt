@@ -21,7 +21,6 @@ import io.ktor.server.response.respond
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.insert
 import org.jetbrains.exposed.sql.selectAll
@@ -92,6 +91,34 @@ suspend fun createShareLinkFor(
         }
     }
 
+    // An item that is only backed up has no derivative a viewer could open, and nothing is
+    // rendering one. An item that is still uploading or processing is a different case: it becomes
+    // shareable on its own, and the viewer shows a placeholder until it does (SDD.md 4.4).
+    //
+    // The refusal names the item, because "not ready" with four thousand photographs behind it is
+    // not an answer.
+    db {
+        val waiting =
+            (com.mantel.features.album.AlbumItems innerJoin MediaItems)
+                .selectAll()
+                .where {
+                    (com.mantel.features.album.AlbumItems.albumId eq album[Albums.id]) and
+                        (MediaItems.status eq ItemState.BACKED_UP)
+                }
+                .orderBy(com.mantel.features.album.AlbumItems.position)
+                .firstOrNull()
+        if (waiting != null) {
+            throw DomainException(
+                ErrorCode.CONFLICT,
+                "${waiting[MediaItems.filename] ?: "An item"} is not ready to be shared yet",
+                mapOf(
+                    "itemId" to waiting[MediaItems.id].toString(),
+                    "status" to waiting[MediaItems.status].wire,
+                ),
+            )
+        }
+    }
+
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     val token = ShareToken(Ids.token())
     val id = ShareLinkId(Ids.uuidV7(clock))
@@ -140,12 +167,10 @@ internal fun coverThumbFor(
     val chosen =
         coverItemId?.let { id ->
             MediaItems.selectAll()
-                .where { (MediaItems.id eq id) and (MediaItems.status eq ItemState.READY) }
+                .where { (MediaItems.id eq id) and (MediaItems.status eq ItemState.SHAREABLE) }
                 .singleOrNull()
         }
-            ?: MediaItems.selectAll()
-                .where { (MediaItems.albumId eq albumId) and (MediaItems.status eq ItemState.READY) }
-                .orderBy(MediaItems.position to SortOrder.ASC)
-                .firstOrNull()
+            ?: com.mantel.features.album.itemsOf(albumId)
+                .firstOrNull { it[MediaItems.status] == ItemState.SHAREABLE }
     return chosen?.get(MediaItems.thumbKey)
 }

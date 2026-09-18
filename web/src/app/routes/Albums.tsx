@@ -3,7 +3,15 @@ import { useState } from 'react'
 import { api, type AlbumSummary } from '../api'
 import { Button, Input, Meter, gigabytes } from '../components/ui'
 
-export function Albums({ onOpen, onSettings }: { onOpen: (id: string) => void; onSettings: () => void }) {
+export function Albums({
+  onOpen,
+  onLibrary,
+  onSettings,
+}: {
+  onOpen: (id: string) => void
+  onLibrary: () => void
+  onSettings: () => void
+}) {
   const client = useQueryClient()
   const me = useQuery({ queryKey: ['me'], queryFn: api.me })
   const albums = useQuery({ queryKey: ['albums'], queryFn: api.albums })
@@ -24,6 +32,9 @@ export function Albums({ onOpen, onSettings }: { onOpen: (id: string) => void; o
         <h1 className="m-0 text-sm font-medium tracking-[0.2em] text-muted uppercase">Albums</h1>
         <div className="flex items-center gap-4">
           {me.data && <Meter used={me.data.storageUsedBytes} total={me.data.storageQuotaBytes} />}
+          <Button size="sm" onClick={onLibrary}>
+            Library
+          </Button>
           <Button size="sm" onClick={onSettings}>
             Settings
           </Button>

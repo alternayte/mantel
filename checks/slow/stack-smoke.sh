@@ -42,11 +42,13 @@ curl -fsS -b "$jar" -X POST -H 'content-type: application/json' \
 for _ in $(seq 1 60); do
   status="$(curl -fsS -b "$jar" "$base/api/albums/$album/status" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)["items"][0]["status"])')"
-  [ "$status" = "ready" ] && { echo "stack-smoke: rendered"; exit 0; }
+  # `shareable` means every derivative a viewer needs exists. An item in an album reaches it; an
+  # item only backed up stops at `backed_up`, which is not a rendered album item.
+  [ "$status" = "shareable" ] && { echo "stack-smoke: rendered"; exit 0; }
   [ "$status" = "failed" ] && break
   sleep 3
 done
 
-echo "stack-smoke: the item never became ready (last status: ${status:-unknown})" >&2
+echo "stack-smoke: the item never became shareable (last status: ${status:-unknown})" >&2
 curl -fsS -b "$jar" "$base/api/albums/$album/status" >&2 || true
 exit 1

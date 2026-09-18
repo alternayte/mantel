@@ -28,6 +28,12 @@ data class ClaimedItem(
     val displayAvifKey: String,
     val posterKey: String,
     val mp4Key: String,
+    /**
+     * Whether a viewer will see this item. An item that is only being backed up gets a thumbnail
+     * and nothing else: transcoding media nobody shares costs the same as transcoding media
+     * somebody does.
+     */
+    val full: Boolean,
     /** How often to say the job is still running, in seconds. A third of the claim timeout. */
     val heartbeatSeconds: Long,
 )
@@ -62,7 +68,8 @@ suspend fun claimWork(
                            LIMIT ?
                              FOR UPDATE SKIP LOCKED
                           )
-                RETURNING id, kind, attempts, original_key
+                RETURNING id, kind, attempts, original_key,
+                          EXISTS (SELECT 1 FROM album_item WHERE media_item_id = media_item.id) AS in_album
                 """.trimIndent()
 
             val connection = TransactionManager.current().connection.connection as java.sql.Connection
@@ -87,6 +94,7 @@ suspend fun claimWork(
                                     displayAvifKey = "$prefix/display.avif",
                                     posterKey = "$prefix/poster.webp",
                                     mp4Key = "$prefix/display.mp4",
+                                    full = rows.getBoolean("in_album"),
                                     heartbeatSeconds = config.worker.claimTimeout.seconds / 3,
                                 ),
                             )

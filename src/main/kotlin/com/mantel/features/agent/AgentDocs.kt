@@ -223,6 +223,55 @@ fun openApiDocument(config: Config): String =
             "responses": { "204": { "description": "Archived" } }
           }
         },
+        "/api/library": {
+          "get": {
+            "summary": "Every media item the account owns, newest first",
+            "description": "Needs albums:read. Pages by item id: pass the previous page's `next` as `after`.",
+            "parameters": [
+              { "name": "after", "in": "query", "required": false, "schema": { "type": "string" } },
+              { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" } }
+            ],
+            "responses": { "200": { "description": "A page of the library" } }
+          }
+        },
+        "/api/library/{itemId}": {
+          "delete": {
+            "summary": "Delete media from the library",
+            "description": "Needs albums:write. Removes the bytes, frees quota, and takes the item out of every album.",
+            "parameters": [{ "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }],
+            "responses": { "204": { "description": "Deleted" } }
+          }
+        },
+        "/api/library/{itemId}/upload-progress": {
+          "get": {
+            "summary": "What storage already holds for an interrupted upload",
+            "description": "Needs albums:write. Fresh URLs for the parts that did not arrive.",
+            "parameters": [{ "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }],
+            "responses": { "200": { "description": "Received and remaining parts" } }
+          }
+        },
+        "/api/library/upload-intent": {
+          "post": {
+            "summary": "Check quota and get an upload URL per file, with no album",
+            "description": "Needs albums:write. The library keeps any file; an album takes only what can be rendered.",
+            "responses": { "200": { "description": "One presigned upload per file" } }
+          }
+        },
+        "/api/library/uploads/complete": {
+          "post": {
+            "summary": "Tell the API the bytes arrived",
+            "description": "Needs albums:write. One call for the whole batch.",
+            "responses": { "200": { "description": "What arrived and what did not" } }
+          }
+        },
+        "/api/albums/{id}/items": {
+          "post": {
+            "summary": "Put media that is already in the library into this album",
+            "description": "Needs albums:write. Costs no quota and no upload: an album is a selection.",
+            "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string" } }],
+            "responses": { "204": { "description": "Added" } }
+          }
+        },
         "/api/albums/{id}/upload-intent": {
           "post": {
             "summary": "Check quota and get an upload URL per file",

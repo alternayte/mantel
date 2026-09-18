@@ -1,17 +1,23 @@
 package com.mantel.features.media
 
-import com.mantel.features.album.Albums
 import com.mantel.kernel.Bytes
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
-import org.jetbrains.exposed.sql.ReferenceOption
 import org.jetbrains.exposed.sql.Table
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.javatime.timestampWithTimeZone
+import org.jetbrains.exposed.sql.selectAll
 import java.util.UUID
 
+/**
+ * Comparable because the library pages by id. Ids are UUIDv7 and sort by creation time, so "the
+ * next page" is "ids below this one" and stays correct while new media arrives at the front.
+ */
 @JvmInline
-value class ItemId(val value: UUID) {
+value class ItemId(val value: UUID) : Comparable<ItemId> {
     override fun toString() = value.toString()
+
+    override fun compareTo(other: ItemId) = value.compareTo(other.value)
 }
 
 @JvmInline
@@ -36,6 +42,9 @@ value class Caption private constructor(val value: String) {
 enum class MediaKind {
     PHOTO,
     VIDEO,
+
+    /** Kept, not rendered: a raw file, a GIF, anything the pipelines cannot open. */
+    FILE,
     ;
 
     val wire: String get() = name.lowercase()
@@ -47,9 +56,14 @@ enum class MediaKind {
 
 object MediaItems : Table("media_item") {
     val id = uuid("id").transform({ ItemId(it) }, { it.value })
-    val albumId =
-        reference("album_id", Albums.id, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.NO_ACTION)
-    val position = integer("position")
+    val accountId =
+        uuid("account_id").transform({ com.mantel.features.account.AccountId(it) }, { it.value })
+
+    /** SHA-256 of the original bytes. Null for media that arrived before the hash existed. */
+    val contentHash = text("content_hash").nullable()
+
+    /** Whether anything in this product can turn the original into a derivative. */
+    val renderable = bool("renderable")
     val kind = text("kind").transform({ MediaKind.fromWire(it) }, { it.wire })
     val filename = text("filename").nullable()
     val uploadId = text("upload_id").nullable()
@@ -63,7 +77,6 @@ object MediaItems : Table("media_item") {
     val height = integer("height").nullable()
     val durationMs = integer("duration_ms").nullable()
     val byteSize = long("byte_size").transform({ Bytes(it) }, { it.value })
-    val caption = text("caption").nullable()
     val status = text("status").transform({ ItemState.fromWire(it) }, { it.wire })
     val attempts = integer("attempts")
     val lastError = text("last_error").nullable()
@@ -75,9 +88,22 @@ object MediaItems : Table("media_item") {
     override val primaryKey = PrimaryKey(id)
 }
 
+/** The media item an account already holds with these bytes, or null. */
+fun held(
+    accountId: com.mantel.features.account.AccountId,
+    contentHash: String,
+): org.jetbrains.exposed.sql.ResultRow? =
+    MediaItems.selectAll()
+        .where { (MediaItems.accountId eq accountId) and (MediaItems.contentHash eq contentHash) }
+        .singleOrNull()
+
+/** The extension of a file the pipelines cannot classify. The name is all there is to go on. */
+fun extensionOf(filename: String): String =
+    filename.substringAfterLast('.', "").lowercase().filter { it.isLetterOrDigit() }.take(8).ifEmpty { "bin" }
+
 /**
- * What an upload may be. A type outside this set is refused at intent, before a presigned URL
- * exists, because the worker can only render what it can read.
+ * What this product can render. The library keeps a file outside this set and marks it unrenderable;
+ * an album takes only what a viewer could be shown.
  */
 val ACCEPTED_TYPES: Map<String, Pair<MediaKind, String>> =
     mapOf(

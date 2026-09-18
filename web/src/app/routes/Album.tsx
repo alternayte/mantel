@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useRef, useState } from 'react'
-import { api } from '../api'
+import { api, settled } from '../api'
 import { Button, gigabytes } from '../components/ui'
 import { ItemGrid } from '../features/ItemGrid'
 import { ShareLinks } from '../features/ShareLinks'
@@ -11,7 +11,15 @@ import { uploadBatch, type UploadState } from '../features/upload'
  * against eight for a wizard, because a wizard charges for its own structure at exactly the moment
  * a creator is waiting on uploads (site/references/run-b.md).
  */
-export function Album({ id, onBack }: { id: string; onBack: () => void }) {
+export function Album({
+  id,
+  onBack,
+  onLibrary,
+}: {
+  id: string
+  onBack: () => void
+  onLibrary: () => void
+}) {
   const client = useQueryClient()
   const [uploads, setUploads] = useState<UploadState[]>([])
   const [dragging, setDragging] = useState(false)
@@ -22,7 +30,7 @@ export function Album({ id, onBack }: { id: string; onBack: () => void }) {
     queryFn: () => api.album(id),
     // While anything is unfinished the album answers for itself, rather than the creator refreshing.
     refetchInterval: (query) =>
-      query.state.data?.items.some((item) => item.status !== 'ready' && item.status !== 'failed') ? 2000 : false,
+      query.state.data?.items.some((item) => !settled(item.status)) ? 2000 : false,
   })
   const links = useQuery({ queryKey: ['links', id], queryFn: () => api.shareLinks(id) })
 
@@ -60,7 +68,7 @@ export function Album({ id, onBack }: { id: string; onBack: () => void }) {
 
   const data = album.data
   const busy = uploads.length > 0
-  const unfinished = data?.items.filter((item) => item.status !== 'ready' && item.status !== 'failed').length ?? 0
+  const unfinished = data?.items.filter((item) => !settled(item.status)).length ?? 0
   const failed = data?.items.filter((item) => item.status === 'failed').length ?? 0
 
   return (
@@ -88,6 +96,9 @@ export function Album({ id, onBack }: { id: string; onBack: () => void }) {
           {failed > 0 && ` · ${failed} failed`}
         </span>
         <span className="grow" />
+        <Button size="sm" onClick={onLibrary}>
+          Add from library
+        </Button>
         <input
           ref={picker}
           type="file"
@@ -129,7 +140,7 @@ export function Album({ id, onBack }: { id: string; onBack: () => void }) {
           onReorder={(ids) => reorder.mutate(ids)}
           onCaption={(itemId, caption) => api.setCaption(id, itemId, caption).then(refresh)}
           onCover={(itemId) => api.updateAlbum(id, { coverItemId: itemId }).then(refresh)}
-          onDelete={(itemId) => api.deleteItem(id, itemId).then(refresh)}
+          onDelete={(itemId) => api.removeFromAlbum(id, itemId).then(refresh)}
           onRetry={(itemId) => api.retryItem(id, itemId).then(refresh)}
         />
       )}

@@ -26,18 +26,42 @@ data class VideoDerivatives(
  * One 1080p H.264 MP4, used by the web viewer and by the download bundle. HLS is deferred, and a
  * second rendition would double the work for a product whose albums are forty items, not a catalogue.
  */
+data class VideoStill(
+    val thumb: Path,
+    val poster: Path,
+    val width: Int,
+    val height: Int,
+    val durationMs: Int,
+)
+
 class VideoPipeline(
     private val ffmpeg: String = "ffmpeg",
     private val ffprobe: String = "ffprobe",
     private val photos: PhotoPipeline = PhotoPipeline(),
 ) {
-    fun render(
+    /**
+     * The still and nothing else. A backed-up video costs one decode rather than a whole transcode,
+     * and the poster is the thumbnail's source either way.
+     */
+    fun posterOnly(
         source: Path,
         into: Path,
-    ): VideoDerivatives {
+    ): VideoStill {
         val probe = probe(source)
+        val still = stillFrom(source, into, probe)
+        val poster = into.resolve("poster.webp")
+        val thumb = into.resolve("thumb.webp")
+        photos.thumbnailTo(still, poster, 1600)
+        photos.thumbnailTo(still, thumb, 300)
+        return VideoStill(thumb, poster, probe.width, probe.height, (probe.durationSeconds * 1000).toInt())
+    }
 
-        // A frame from a second in, so a clip that fades from black still has a picture on it.
+    /** A frame from a second in, so a clip that fades from black still has a picture on it. */
+    private fun stillFrom(
+        source: Path,
+        into: Path,
+        probe: Probe,
+    ): Path {
         val frameAt = minOf(1.0, probe.durationSeconds / 10)
         val still = into.resolve("poster-source.png")
         run(
@@ -47,6 +71,16 @@ class VideoPipeline(
             "-frames:v", "1",
             still.toString(),
         )
+        return still
+    }
+
+    fun render(
+        source: Path,
+        into: Path,
+    ): VideoDerivatives {
+        val probe = probe(source)
+
+        val still = stillFrom(source, into, probe)
 
         val poster = into.resolve("poster.webp")
         val thumb = into.resolve("thumb.webp")

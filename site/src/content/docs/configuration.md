@@ -17,6 +17,7 @@ A value is here only when a deployment will set it to something other than the d
 | `MANTEL_PUBLIC_BASE_URL` | `http://localhost:8080` | How the outside world reaches this instance. Share links are built from it |
 | `MANTEL_COOKIE_SECRET` | random each start | Signs the PIN unlock cookie. Unset costs viewers of PIN'd albums one extra unlock after a restart |
 | `MANTEL_DEFAULT_QUOTA_BYTES` | `10737418240` (10 GiB) | Storage a new account gets. One number, no tiers |
+| `MANTEL_MAX_FILE_BYTES` | `5368709120` (5 GiB) | The largest single file the library accepts |
 
 ## PostgreSQL
 

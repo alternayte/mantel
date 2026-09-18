@@ -46,7 +46,8 @@ class UploadWorker(
     override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo("Uploading", 0, 0)
 
     override suspend fun doWork(): Result {
-        val albumId = inputData.getString(ALBUM_ID) ?: return Result.failure()
+        // A batch with no album is a backup: it lands in the library and is selected later.
+        val albumId = inputData.getString(ALBUM_ID)
         val batchId = inputData.getString(BATCH_ID) ?: return Result.failure()
         val serverUrl = settings.serverUrl.first() ?: return Result.failure()
         val session = settings.session.first() ?: return Result.failure()
@@ -56,14 +57,14 @@ class UploadWorker(
             setForeground(foregroundInfo("Uploading", 0, 0))
             var batch = batches.load(batchId) ?: return Result.failure()
             if (batch.items.any { it.itemId == null }) {
-                batch = declare(api, albumId, batch)
+                batch = declare(api, batch)
                 batches.save(batchId, batch)
             }
 
             batch.items.forEachIndexed { index, item ->
                 if (item.uploaded) return@forEachIndexed
                 report(batch, item.filename, index)
-                val uploaded = send(api, albumId, item)
+                val uploaded = send(api, item)
                 batch = batch.copy(items = batch.items.map { if (it.uri == item.uri) uploaded else it })
                 batches.save(batchId, batch)
                 report(batch, item.filename, index)
@@ -71,7 +72,10 @@ class UploadWorker(
 
             // One call for the whole batch: forty photographs are one request, not forty.
             val itemIds = batch.items.mapNotNull { it.itemId }
-            if (itemIds.isNotEmpty()) api.completeUploads(albumId, itemIds)
+            val fresh = batch.items.filterNot { it.alreadyHeld }.mapNotNull { it.itemId }
+            if (fresh.isNotEmpty()) api.completeUploads(fresh)
+            // The library holds the media; the album is the selection made from it.
+            if (albumId != null && itemIds.isNotEmpty()) api.addToAlbum(albumId, itemIds)
             batches.forget(batchId)
             return Result.success()
         } catch (e: ApiException) {
@@ -97,10 +101,11 @@ class UploadWorker(
      */
     private suspend fun declare(
         api: MantelApi,
-        albumId: String,
         batch: UploadBatch,
     ): UploadBatch {
-        val intent = api.uploadIntent(albumId, batch.items.map { it.declared() })
+        // Hashed first, so the API can say it already holds a file and no bytes move for it.
+        val declared = batch.items.map { it.declared(sha256Of(Uri.parse(it.uri))) }
+        val intent = api.uploadIntent(declared)
         return batch.copy(
             items =
                 batch.items.mapIndexed { index, item ->
@@ -109,10 +114,30 @@ class UploadWorker(
                         itemId = granted?.itemId,
                         uploadUrl = granted?.uploadUrl,
                         uploadId = granted?.uploadId,
+                        alreadyHeld = granted?.alreadyHeld ?: false,
+                        uploaded = granted?.alreadyHeld ?: false,
                     )
                 },
         )
     }
+
+    /**
+     * The SHA-256 of a file, read in blocks rather than into memory: this runs on a phone and the
+     * file may be a two gigabyte video.
+     */
+    private fun sha256Of(uri: Uri): String? =
+        runCatching {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            open(uri).use { input ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read <= 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            digest.digest().joinToString("") { "%02x".format(it) }
+        }.getOrNull()
 
     /**
      * One file. A small one is a single PUT; a large one is parts, and on a second attempt the
@@ -120,7 +145,6 @@ class UploadWorker(
      */
     private suspend fun send(
         api: MantelApi,
-        albumId: String,
         item: BatchItem,
     ): BatchItem {
         val itemId = item.itemId ?: return item
@@ -134,7 +158,8 @@ class UploadWorker(
             return item.copy(uploaded = true)
         }
 
-        val progress = api.uploadProgress(albumId, itemId)
+        // Storage is asked what already arrived, so only the rest is sent again.
+        val progress = api.uploadProgress(itemId = itemId)
         var offset = 0L
         val received = progress.received.associateBy { it.partNumber }
         val remaining = progress.remaining.associateBy { it.partNumber }
@@ -220,7 +245,7 @@ class UploadWorker(
         private const val NOTIFICATION_ID = 1
         private const val MAX_ATTEMPTS = 5
 
-        fun tagFor(albumId: String) = "upload:$albumId"
+        fun tagFor(albumId: String?) = "upload:${albumId ?: "library"}"
 
         /**
          * Queued, not replaced: a second selection while the first is still going is more
@@ -228,7 +253,7 @@ class UploadWorker(
          */
         suspend fun enqueue(
             context: Context,
-            albumId: String,
+            albumId: String?,
             uris: List<Uri>,
         ): Int {
             // The picked files are described and written down here rather than passed to the
@@ -244,7 +269,7 @@ class UploadWorker(
                     .addTag(tagFor(albumId))
                     .setInputData(
                         Data.Builder()
-                            .putString(ALBUM_ID, albumId)
+                            .apply { albumId?.let { putString(ALBUM_ID, it) } }
                             .putString(BATCH_ID, batchId)
                             .build(),
                     )

@@ -14,6 +14,15 @@ export type AlbumSummary = {
   updatedAt: string
 }
 
+/**
+ * `backed_up` means the library holds the original and a thumbnail; `shareable` means every
+ * derivative a viewer needs exists. They were one state called `ready` until the library existed.
+ */
+export type ItemStatus = 'pending_upload' | 'uploaded' | 'processing' | 'backed_up' | 'shareable' | 'failed'
+
+/** An item nothing is waiting on: it is either shown or it failed. */
+export const settled = (status: string) => status === 'shareable' || status === 'failed'
+
 export type Item = {
   id: string
   position: number
@@ -25,6 +34,7 @@ export type Item = {
   height?: number | null
   durationMs?: number | null
   lastError?: string | null
+  filename?: string | null
   thumbUrl?: string | null
 }
 
@@ -51,6 +61,17 @@ export type PresignedUpload = {
   uploadUrl?: string | null
   uploadId?: string | null
   parts?: PresignedPart[] | null
+  /** The library already holds these bytes. Nothing to send. */
+  alreadyHeld?: boolean
+}
+
+export type LibraryPage = { items: Item[]; next?: string | null; totalItems: number }
+
+export type DeclaredFile = {
+  filename: string
+  contentType: string
+  sizeBytes: number
+  contentHash?: string
 }
 
 export class ApiError extends Error {
@@ -103,16 +124,22 @@ export const api = {
     call<AlbumSummary>(`/albums/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   archiveAlbum: (id: string) => call<void>(`/albums/${id}`, { method: 'DELETE' }),
 
-  uploadIntent: (albumId: string, files: { filename: string; contentType: string; sizeBytes: number }[]) =>
-    call<{ items: PresignedUpload[]; expiresInSeconds: number }>(`/albums/${albumId}/upload-intent`, {
+  // Media lands in the library. An album is a selection from it, so an upload names no album.
+  library: (after?: string | null) =>
+    call<LibraryPage>(`/library${after ? `?after=${after}` : ''}`),
+  uploadIntent: (files: DeclaredFile[]) =>
+    call<{ items: PresignedUpload[]; expiresInSeconds: number }>('/library/upload-intent', {
       method: 'POST',
       body: JSON.stringify({ files }),
     }),
-  completeUploads: (albumId: string, itemIds: string[]) =>
-    call<{ uploaded: string[]; missing: string[] }>(`/albums/${albumId}/uploads/complete`, {
+  completeUploads: (itemIds: string[]) =>
+    call<{ uploaded: string[]; missing: string[] }>('/library/uploads/complete', {
       method: 'POST',
       body: JSON.stringify({ itemIds }),
     }),
+  deleteFromLibrary: (itemId: string) => call<void>(`/library/${itemId}`, { method: 'DELETE' }),
+  addToAlbum: (albumId: string, mediaItemIds: string[]) =>
+    call<void>(`/albums/${albumId}/items`, { method: 'POST', body: JSON.stringify({ mediaItemIds }) }),
   uploadProgress: (albumId: string, itemId: string) =>
     call<{ received: { partNumber: number }[]; remaining: PresignedPart[] }>(
       `/albums/${albumId}/items/${itemId}/upload-progress`,
@@ -122,7 +149,9 @@ export const api = {
     call<void>(`/albums/${albumId}/items/reorder`, { method: 'PATCH', body: JSON.stringify({ itemIds }) }),
   setCaption: (albumId: string, itemId: string, caption: string) =>
     call<void>(`/albums/${albumId}/items/${itemId}`, { method: 'PATCH', body: JSON.stringify({ caption }) }),
-  deleteItem: (albumId: string, itemId: string) => call<void>(`/albums/${albumId}/items/${itemId}`, { method: 'DELETE' }),
+  /** Out of the album, not out of the library: an album is a selection, and unselecting is not deleting. */
+  removeFromAlbum: (albumId: string, itemId: string) =>
+    call<void>(`/albums/${albumId}/items/${itemId}`, { method: 'DELETE' }),
   retryItem: (albumId: string, itemId: string) =>
     call<void>(`/albums/${albumId}/items/${itemId}/retry`, { method: 'POST' }),
 
