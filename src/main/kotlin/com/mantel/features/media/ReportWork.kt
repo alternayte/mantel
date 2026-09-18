@@ -1,10 +1,11 @@
 package com.mantel.features.media
 
+import com.mantel.features.album.AlbumItems
 import com.mantel.features.album.Albums
 import com.mantel.features.album.albumIdFrom
 import com.mantel.features.album.itemIdFrom
 import com.mantel.features.album.requireOwnAlbum
-import com.mantel.features.album.settleAlbum
+import com.mantel.features.album.settleAlbumsHolding
 import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
@@ -65,7 +66,15 @@ suspend fun reportDerivatives(
             val item =
                 MediaItems.selectAll().where { MediaItems.id eq itemId }.singleOrNull()
                     ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
-            val next = transition(item[MediaItems.status], ItemEvent.DerivativesWritten)
+            // What the report contains decides the state, not what the claim asked for. A worker
+            // that wrote a thumbnail and nothing else leaves the item backed up, whatever the
+            // album membership was when the claim went out.
+            val everything = report.displayWebpKey != null || report.mp4Key != null
+            val next =
+                transition(
+                    item[MediaItems.status],
+                    if (everything) ItemEvent.DerivativesWritten else ItemEvent.ThumbnailWritten,
+                )
 
             MediaItems.update({ MediaItems.id eq itemId }) {
                 it[status] = next
@@ -81,7 +90,17 @@ suspend fun reportDerivatives(
                 it[nextAttemptAt] = null
                 it[readyAt] = now
             }
-            settleAlbum(item[MediaItems.albumId], now)
+            // An item that joined an album while its thumbnail was rendering goes back on the
+            // queue for the rest, rather than sitting in an album that cannot publish.
+            val wanted =
+                AlbumItems.selectAll().where { AlbumItems.mediaItemId eq itemId }.any()
+            if (next == ItemState.BACKED_UP && wanted) {
+                MediaItems.update({ MediaItems.id eq itemId }) {
+                    it[status] = transition(ItemState.BACKED_UP, ItemEvent.AlbumJoined)
+                    it[attempts] = 0
+                }
+            }
+            settleAlbumsHolding(itemId, now)
             WorkOutcome(next.wire, item[MediaItems.attempts])
         }
     call.respond(outcome)
@@ -151,7 +170,7 @@ suspend fun reportFailure(
                 it[nextAttemptAt] = retryAt
                 it[claimedAt] = null
             }
-            if (exhausted) settleAlbum(item[MediaItems.albumId], now)
+            if (exhausted) settleAlbumsHolding(itemId, now)
             WorkOutcome(next.wire, attempts, retryAt?.toInstant()?.toString())
         }
     call.respond(outcome)
@@ -169,7 +188,7 @@ suspend fun retryItem(
     db {
         val item =
             MediaItems.selectAll()
-                .where { (MediaItems.id eq itemId) and (MediaItems.albumId eq album[Albums.id]) }
+                .where { (MediaItems.id eq itemId) and (MediaItems.accountId eq album[Albums.accountId]) }
                 .singleOrNull()
                 ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
         val next =
@@ -182,7 +201,7 @@ suspend fun retryItem(
             it[lastError] = null
             it[nextAttemptAt] = null
         }
-        settleAlbum(album[Albums.id], now)
+        settleAlbumsHolding(itemId, now)
     }
     call.respond(HttpStatusCode.NoContent)
 }

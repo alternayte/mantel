@@ -80,6 +80,10 @@ class UploadIntentTest {
                     "GET /api/me",
                     "GET /api/account/export",
                     "DELETE /api/account",
+                    "GET /api/library",
+                    "POST /api/library/upload-intent",
+                    "POST /api/library/uploads/complete",
+                    "DELETE /api/library/{itemId}",
                     "GET /api/albums",
                     "POST /api/albums",
                     "GET /api/albums/{id}",
@@ -89,6 +93,7 @@ class UploadIntentTest {
                     "POST /api/albums/{id}/upload-intent",
                     "GET /api/albums/{id}/items/{itemId}/upload-progress",
                     "POST /api/albums/{id}/uploads/complete",
+                    "POST /api/albums/{id}/items",
                     "PATCH /api/albums/{id}/items/reorder",
                     "PATCH /api/albums/{id}/items/{itemId}",
                     "DELETE /api/albums/{id}/items/{itemId}",
@@ -145,19 +150,25 @@ class UploadIntentTest {
         }
 
     @Test
-    fun `an unsupported type is refused before any URL is issued`() =
+    fun `a type nothing can render is refused by an album and kept by the library`() =
         withApp { harness ->
             val browser = signedIn(harness)
             val album = browser.createAlbum().body<AlbumSummary>()
+            val pdf = """{"filename":"notes.pdf","contentType":"application/pdf","sizeBytes":100}"""
 
-            val response =
-                browser.uploadIntent(
-                    album.id,
-                    """{"files":[{"filename":"notes.pdf","contentType":"application/pdf","sizeBytes":100}]}""",
-                )
-            assertEquals(HttpStatusCode.UnprocessableEntity, response.status)
+            val refused = browser.uploadIntent(album.id, """{"files":[$pdf]}""")
+            assertEquals(HttpStatusCode.UnprocessableEntity, refused.status)
             assertTrue(harness.storage.presigns.isEmpty())
             assertEquals(0, browser.get("/api/albums/${album.id}").body<com.mantel.features.album.AlbumView>().items.size)
+
+            // The library keeps what the camera produced. A backup that drops files is not a backup.
+            val kept =
+                browser.post("/api/library/upload-intent") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"files":[$pdf]}""")
+                }
+            assertEquals(HttpStatusCode.OK, kept.status)
+            assertEquals(1, json.decodeFromString<UploadIntentResponse>(kept.bodyAsText()).items.size)
         }
 
     @Test

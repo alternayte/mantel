@@ -118,10 +118,15 @@ class QuotaPresignTest {
             val itemId = intent.items.single().itemId
             assertEquals(900, browser.get("/api/me").body<Me>().storageUsedBytes)
 
+            // Taking it out of the album is not deleting it: an album is a selection.
             assertEquals(
                 HttpStatusCode.NoContent,
                 browser.delete("/api/albums/${album.id}/items/$itemId").status,
             )
+            assertEquals(900, browser.get("/api/me").body<Me>().storageUsedBytes)
+            assertTrue(harness.storage.deletedPrefixes.isEmpty())
+
+            assertEquals(HttpStatusCode.NoContent, browser.delete("/api/library/$itemId").status)
             assertEquals(0, browser.get("/api/me").body<Me>().storageUsedBytes)
             assertTrue(harness.storage.deletedPrefixes.any { it.contains(itemId) })
         }

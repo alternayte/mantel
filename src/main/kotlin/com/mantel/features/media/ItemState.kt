@@ -9,7 +9,12 @@ enum class ItemState {
     PENDING_UPLOAD,
     UPLOADED,
     PROCESSING,
-    READY,
+
+    /** The library holds the original and a thumbnail. Nothing renders it for a viewer yet. */
+    BACKED_UP,
+
+    /** Every derivative exists, so an album holding this item can publish. */
+    SHAREABLE,
     FAILED,
     ;
 
@@ -29,6 +34,12 @@ sealed interface ItemEvent {
 
     /** Every derivative is written. */
     data object DerivativesWritten : ItemEvent
+
+    /** The thumbnail is written and nothing else was asked for. */
+    data object ThumbnailWritten : ItemEvent
+
+    /** A backed-up item joined an album, so the rest of its derivatives are now wanted. */
+    data object AlbumJoined : ItemEvent
 
     /** The attempt failed and no attempts remain. */
     data class Exhausted(val error: String) : ItemEvent
@@ -65,14 +76,22 @@ fun transition(
 
         ItemState.PROCESSING ->
             when (event) {
-                ItemEvent.DerivativesWritten -> ItemState.READY
+                ItemEvent.DerivativesWritten -> ItemState.SHAREABLE
+                ItemEvent.ThumbnailWritten -> ItemState.BACKED_UP
                 is ItemEvent.Exhausted -> ItemState.FAILED
                 ItemEvent.Requeued, ItemEvent.ClaimExpired -> ItemState.UPLOADED
                 else -> throw IllegalTransition(state, event)
             }
 
-        // A ready item is finished. Replacing a photo is a new item, not a new attempt.
-        ItemState.READY -> throw IllegalTransition(state, event)
+        // Backed up is finished until somebody wants to show it, and then the rest is rendered.
+        ItemState.BACKED_UP ->
+            when (event) {
+                ItemEvent.AlbumJoined -> ItemState.UPLOADED
+                else -> throw IllegalTransition(state, event)
+            }
+
+        // A shareable item is finished. Replacing a photo is a new item, not a new attempt.
+        ItemState.SHAREABLE -> throw IllegalTransition(state, event)
 
         ItemState.FAILED ->
             when (event) {

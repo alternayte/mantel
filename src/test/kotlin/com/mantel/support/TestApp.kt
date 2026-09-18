@@ -27,7 +27,6 @@ import io.ktor.server.application.Application
 import io.ktor.server.testing.ApplicationTestBuilder
 import io.ktor.server.testing.testApplication
 import kotlinx.serialization.json.Json
-import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.jetbrains.exposed.sql.update
 import org.testcontainers.containers.PostgreSQLContainer
@@ -229,6 +228,7 @@ fun testConfig(
     port = 0,
     publicBaseUrl = "http://localhost",
     defaultQuota = Bytes(10L * 1024 * 1024 * 1024),
+    maxFileBytes = Bytes(5L * 1024 * 1024 * 1024),
     database = TestDatabase.config,
     storage =
         storage
@@ -281,7 +281,7 @@ class Harness(
             com.mantel.features.media.MediaItems.update(
                 { com.mantel.features.media.MediaItems.id eq com.mantel.features.media.ItemId(java.util.UUID.fromString(itemId)) },
             ) {
-                it[com.mantel.features.media.MediaItems.status] = com.mantel.features.media.ItemState.READY
+                it[com.mantel.features.media.MediaItems.status] = com.mantel.features.media.ItemState.SHAREABLE
                 it[com.mantel.features.media.MediaItems.thumbKey] = "$prefix/thumb.webp"
                 it[com.mantel.features.media.MediaItems.displayWebpKey] = "$prefix/display.webp"
                 it[com.mantel.features.media.MediaItems.displayAvifKey] = "$prefix/display.avif"
@@ -289,14 +289,8 @@ class Harness(
                 it[com.mantel.features.media.MediaItems.height] = 1600
             }
             // The API does this when the worker reports, and an album's status follows its items.
-            com.mantel.features.album.settleAlbum(
-                com.mantel.features.media.MediaItems
-                    .selectAll()
-                    .where {
-                        com.mantel.features.media.MediaItems.id eq
-                            com.mantel.features.media.ItemId(java.util.UUID.fromString(itemId))
-                    }
-                    .single()[com.mantel.features.media.MediaItems.albumId],
+            com.mantel.features.album.settleAlbumsHolding(
+                com.mantel.features.media.ItemId(java.util.UUID.fromString(itemId)),
                 java.time.OffsetDateTime.now(),
             )
         }

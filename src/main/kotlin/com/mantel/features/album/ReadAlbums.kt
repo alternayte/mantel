@@ -64,14 +64,29 @@ fun ResultRow.toSummary() =
 
 private val THUMB_LIFETIME: Duration = Duration.ofHours(6)
 
+/** A thumbnail exists from the moment an item is backed up, whether or not the rest does. */
+private val RENDERED = setOf(ItemState.BACKED_UP, ItemState.SHAREABLE)
+
+/** Every item of an album, in the album's order, with its membership alongside it. */
+fun itemsOf(albumId: AlbumId) =
+    (AlbumItems innerJoin MediaItems)
+        .selectAll()
+        .where { AlbumItems.albumId eq albumId }
+        .orderBy(AlbumItems.position to SortOrder.ASC)
+        .toList()
+
+/**
+ * A media item as a client sees it. `position` and `caption` come from the membership when the row
+ * is read through an album, and are absent when it is read from the library, where it has neither.
+ */
 fun ResultRow.toItemView(storage: ObjectStorage? = null) =
     ItemView(
         id = this[MediaItems.id].toString(),
-        position = this[MediaItems.position],
+        position = getOrNull(AlbumItems.position) ?: 0,
         kind = this[MediaItems.kind].wire,
         status = this[MediaItems.status].wire,
         byteSize = this[MediaItems.byteSize].value,
-        caption = this[MediaItems.caption],
+        caption = getOrNull(AlbumItems.caption),
         width = this[MediaItems.width],
         height = this[MediaItems.height],
         durationMs = this[MediaItems.durationMs],
@@ -79,7 +94,7 @@ fun ResultRow.toItemView(storage: ObjectStorage? = null) =
         lastError = this[MediaItems.lastError],
         thumbUrl =
             this[MediaItems.thumbKey]
-                ?.takeIf { this[MediaItems.status] == ItemState.READY }
+                ?.takeIf { this[MediaItems.status] in RENDERED }
                 ?.let { key -> storage?.presignGetForThisHour(key, THUMB_LIFETIME) },
     )
 
@@ -110,13 +125,7 @@ suspend fun readAlbumFor(
     storage: ObjectStorage,
 ): AlbumView {
     val album = requireOwnAlbumFor(caller.demand(Scope.ALBUMS_READ), albumId)
-    val rows =
-        db {
-            MediaItems.selectAll()
-                .where { MediaItems.albumId eq album[Albums.id] }
-                .orderBy(MediaItems.position to SortOrder.ASC)
-                .toList()
-        }
+    val rows = db { itemsOf(album[Albums.id]) }
     val items = withContext(Dispatchers.IO) { rows.map { it.toItemView(storage) } }
     val summary = album.toSummary()
     return AlbumView(
@@ -152,22 +161,16 @@ suspend fun getAlbumProgress(
     storage: ObjectStorage,
 ) {
     val album = requireOwnAlbum(call, albumIdFrom(call), Scope.ALBUMS_READ)
-    val rows =
-        db {
-            MediaItems.selectAll()
-                .where { MediaItems.albumId eq album[Albums.id] }
-                .orderBy(MediaItems.position to SortOrder.ASC)
-                .toList()
-        }
+    val rows = db { itemsOf(album[Albums.id]) }
     val items = withContext(Dispatchers.IO) { rows.map { it.toItemView(storage) } }
     val states = items.map { ItemState.fromWire(it.status) }
     call.respond(
         AlbumProgress(
             status = album[Albums.status].wire,
             total = items.size,
-            ready = states.count { it == ItemState.READY },
+            ready = states.count { it == ItemState.SHAREABLE },
             failed = states.count { it == ItemState.FAILED },
-            pending = states.count { it != ItemState.READY && it != ItemState.FAILED },
+            pending = states.count { it != ItemState.SHAREABLE && it != ItemState.FAILED },
             items = items,
         ),
     )

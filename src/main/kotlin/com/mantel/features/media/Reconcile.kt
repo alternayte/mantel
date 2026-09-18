@@ -1,7 +1,6 @@
 package com.mantel.features.media
 
 import com.mantel.features.account.Accounts
-import com.mantel.features.album.Albums
 import com.mantel.features.share.AlbumBundles
 import com.mantel.features.share.ShareLinks
 import com.mantel.features.share.ogKeyFor
@@ -90,10 +89,12 @@ suspend fun repairQuota(
             var corrected = 0
 
             accounts.forEach { account ->
+                // Counted from the library, so a photograph in three albums counts once and a
+                // photograph in none still counts.
                 val total =
-                    (MediaItems innerJoin Albums)
+                    MediaItems
                         .select(MediaItems.byteSize.sum())
-                        .where { Albums.accountId eq account[Accounts.id] }
+                        .where { MediaItems.accountId eq account[Accounts.id] }
                         .single()[MediaItems.byteSize.sum()]
                         ?: Bytes.NONE
 

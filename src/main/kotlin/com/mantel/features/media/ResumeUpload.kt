@@ -50,7 +50,7 @@ suspend fun getUploadProgress(
     val item =
         db {
             MediaItems.selectAll()
-                .where { (MediaItems.id eq itemId) and (MediaItems.albumId eq album[Albums.id]) }
+                .where { (MediaItems.id eq itemId) and (MediaItems.accountId eq album[Albums.accountId]) }
                 .singleOrNull()
         } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
 

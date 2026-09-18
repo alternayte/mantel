@@ -178,7 +178,55 @@ items join it in the milestones that create them.
 object under the account's storage prefix. Objects go first, so a failure never leaves storage with
 no row pointing at it. The email address is free to sign up again afterwards.
 
+## Library
+
+Media belongs to the account, not to an album. An album is an ordered selection from the library, so
+the two have different lifetimes: taking a photograph out of an album leaves it in the library, and
+deleting an album keeps every photograph that was in it.
+
+The library keeps what the camera produced, whatever its type. A file this product cannot render is
+kept with `kind: "file"` and no thumbnail, and an album refuses it, because an album is what a
+viewer is shown. Support for a format added later re-renders media the account already holds: the
+original is kept byte-identical.
+
+### `GET /api/library`
+
+Every media item the account owns, newest first.
+
+```
+GET /api/library?limit=100&after=019b76da-a800-7bf1-b5cd-a8007d792a75
+```
+
+```json
+{ "items": [ … ], "next": "019b76da-…", "totalItems": 4213 }
+```
+
+It pages by item id, not by offset. Ids are UUIDv7 and sort by creation time, so a page boundary
+holds still while new media arrives at the front. Pass the previous page's `next` as `after`;
+`next` is absent on the last page.
+
+### `POST /api/library/upload-intent`
+
+The same shape as the album intent below, with no album. Media lands in the library and is selected
+into an album later.
+
+### `POST /api/library/uploads/complete`
+
+The same shape as the album completion below. One call for the whole batch.
+
+### `DELETE /api/library/{itemId}`
+
+`204`. This is the only deletion that removes bytes: it deletes the item's objects, returns its
+bytes to the account, and takes the item out of every album that held it.
+
+---
+
 ## Albums
+
+An item is `pending_upload`, then `uploaded`, then `processing`, then either `backed_up` or
+`shareable`, or `failed`. `backed_up` means the library holds the original and a thumbnail and
+nothing renders it for a viewer yet; `shareable` means every derivative exists. A share link is
+refused while any item in the album is `backed_up`, and the refusal names the item.
 
 An album is `draft` while it is assembled, `ready` when every item has finished processing,
 `published` while a live share link exists (M5), and `archived` once deleted. Publishing is not a
@@ -237,8 +285,17 @@ Quota is checked and the declared bytes are reserved before any URL is issued. A
 not fit is refused whole, with `quota_exceeded`; the part that would fit is not accepted. At most
 200 files in one batch.
 
-Accepted types: `image/jpeg`, `image/png`, `image/webp`, `image/heic`, `image/heif`, `video/mp4`,
-`video/quicktime`. Anything else is `validation_failed`.
+`contentHash` is optional: the unpadded lower-case hex SHA-256 of the original bytes. When the
+account already holds those bytes the item comes back with `alreadyHeld: true` and no URL, nothing
+is reserved, and the existing media item joins the album. Dedupe is per account and never across
+accounts.
+
+An album takes only what can be rendered: `image/jpeg`, `image/png`, `image/webp`, `image/heic`,
+`image/heif`, `video/mp4`, `video/quicktime`. Anything else is `validation_failed` here and is
+accepted by `POST /api/library/upload-intent` instead.
+
+A single file larger than the instance's ceiling is `validation_failed`, with the ceiling in
+`details.maxBytes`. It is `MANTEL_MAX_FILE_BYTES`, 5 GiB by default.
 
 ```json
 {
@@ -328,10 +385,21 @@ Names every item in the album exactly once, in the new order. `204`.
 
 `204`. An empty caption clears it. At most 500 characters.
 
+### `POST /api/albums/{id}/items`
+
+```json
+{ "mediaItemIds": ["…", "…"] }
+```
+
+`204`. Puts media that is already in the library into this album, at the end. It costs no quota and
+no upload. An item that is only backed up is asked for the rest of its derivatives here, because
+somebody may now look at it. An item this product cannot render is `validation_failed`.
+
 ### `DELETE /api/albums/{id}/items/{itemId}`
 
-`204`. Deletes the item's objects, returns its bytes to the account, and closes the gap in
-positions.
+`204`. Takes the item out of the album and closes the gap in positions. **It does not delete the
+photograph**: an album is a selection, and unselecting is not deleting. `DELETE
+/api/library/{itemId}` removes the bytes.
 
 ### `POST /api/albums/{id}/items/{itemId}/retry`
 

@@ -1,23 +1,22 @@
 package com.mantel.features.media
 
-import com.mantel.features.account.Accounts
-import com.mantel.features.account.quota
+import com.mantel.features.album.AlbumItems
 import com.mantel.features.album.Albums
+import com.mantel.features.album.albumBytesOf
 import com.mantel.features.album.albumIdFrom
+import com.mantel.features.album.albumSizeOf
 import com.mantel.features.album.demand
 import com.mantel.features.album.itemIdFrom
 import com.mantel.features.album.requireOwnAlbum
+import com.mantel.features.album.settleAlbum
 import com.mantel.kernel.Clock
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
 import com.mantel.kernel.db
-import com.mantel.storage.ObjectStorage
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.and
@@ -70,7 +69,7 @@ suspend fun reorderItemsFor(
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     db {
         val existing =
-            MediaItems.selectAll().where { MediaItems.albumId eq albumId }.map { it[MediaItems.id] }.toSet()
+            AlbumItems.selectAll().where { AlbumItems.albumId eq albumId }.map { it[AlbumItems.mediaItemId] }.toSet()
         if (requested.toSet() != existing) {
             throw DomainException(
                 ErrorCode.VALIDATION_FAILED,
@@ -79,7 +78,9 @@ suspend fun reorderItemsFor(
             )
         }
         requested.forEachIndexed { index, itemId ->
-            MediaItems.update({ MediaItems.id eq itemId }) { it[position] = index }
+            AlbumItems.update({ (AlbumItems.albumId eq albumId) and (AlbumItems.mediaItemId eq itemId) }) {
+                it[position] = index
+            }
         }
         Albums.update({ Albums.id eq albumId }) { it[updatedAt] = now }
     }
@@ -117,9 +118,13 @@ suspend fun setCaptionFor(
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     val changed =
         db {
+            // The caption belongs to the membership: the same photograph carries different words
+            // in a different album.
             val updated =
-                MediaItems.update({ (MediaItems.id eq itemId) and (MediaItems.albumId eq album[Albums.id]) }) {
-                    it[MediaItems.caption] = caption?.value
+                AlbumItems.update({
+                    (AlbumItems.mediaItemId eq itemId) and (AlbumItems.albumId eq album[Albums.id])
+                }) {
+                    it[AlbumItems.caption] = caption?.value
                 }
             if (updated > 0) Albums.update({ Albums.id eq album[Albums.id] }) { it[updatedAt] = now }
             updated
@@ -128,50 +133,44 @@ suspend fun setCaptionFor(
 }
 
 /**
- * Removing an item returns its reserved bytes to the account and takes every object it owns with
- * it, derivatives included, by deleting the item's own storage prefix.
+ * Taking an item out of an album. The photograph stays in the library, because an album is a
+ * selection and unselecting is not deleting. `DELETE /api/library/{itemId}` removes the bytes.
  */
-suspend fun deleteItem(
+suspend fun removeFromAlbum(
     call: ApplicationCall,
-    storage: ObjectStorage,
     clock: Clock = Clock.system,
 ) {
     val album = requireOwnAlbum(call, albumIdFrom(call))
     val albumId = album[Albums.id]
     val itemId = itemIdFrom(call)
-
-    val item =
-        db {
-            MediaItems.selectAll()
-                .where { (MediaItems.id eq itemId) and (MediaItems.albumId eq albumId) }
-                .singleOrNull()
-        } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
-
-    val prefix = item[MediaItems.originalKey].substringBeforeLast('/') + "/"
-    withContext(Dispatchers.IO) {
-        // An unfinished multipart upload holds bytes that no listing shows and no row points at.
-        item[MediaItems.uploadId]?.let { storage.abortMultipartUpload(item[MediaItems.originalKey], it) }
-        storage.deletePrefix(prefix)
-    }
-
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
-    db {
-        MediaItems.deleteWhere { MediaItems.id eq itemId }
-        MediaItems.selectAll()
-            .where { MediaItems.albumId eq albumId }
-            .orderBy(MediaItems.position)
-            .forEachIndexed { index, row ->
-                MediaItems.update({ MediaItems.id eq row[MediaItems.id] }) { it[position] = index }
+
+    val removed =
+        db {
+            val gone =
+                AlbumItems.deleteWhere {
+                    (AlbumItems.albumId eq albumId) and (AlbumItems.mediaItemId eq itemId)
+                }
+            if (gone > 0) {
+                AlbumItems.selectAll()
+                    .where { AlbumItems.albumId eq albumId }
+                    .orderBy(AlbumItems.position)
+                    .map { it[AlbumItems.mediaItemId] }
+                    .forEachIndexed { index, id ->
+                        AlbumItems.update({ (AlbumItems.albumId eq albumId) and (AlbumItems.mediaItemId eq id) }) {
+                            it[position] = index
+                        }
+                    }
+                Albums.update({ Albums.id eq albumId }) {
+                    it[itemCount] = albumSizeOf(albumId)
+                    it[totalBytes] = albumBytesOf(albumId)
+                    it[updatedAt] = now
+                    if (album[Albums.coverItemId] == itemId) it[coverItemId] = null
+                }
+                settleAlbum(albumId, now)
             }
-        Albums.update({ Albums.id eq albumId }) {
-            it[itemCount] = album[Albums.itemCount] - 1
-            it[totalBytes] = album[Albums.totalBytes] - item[MediaItems.byteSize]
-            it[updatedAt] = now
+            gone
         }
-        val account = Accounts.selectAll().where { Accounts.id eq album[Albums.accountId] }.single()
-        Accounts.update({ Accounts.id eq album[Albums.accountId] }) {
-            it[storageUsedBytes] = account.quota().release(item[MediaItems.byteSize]).used
-        }
-    }
+    if (removed == 0) throw DomainException(ErrorCode.NOT_FOUND, "No such item")
     call.respond(HttpStatusCode.NoContent)
 }

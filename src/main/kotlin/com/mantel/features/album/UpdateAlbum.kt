@@ -1,7 +1,6 @@
 package com.mantel.features.album
 
 import com.mantel.features.media.ItemId
-import com.mantel.features.media.MediaItems
 import com.mantel.kernel.Clock
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
@@ -43,8 +42,8 @@ suspend fun updateAlbum(
                 runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
                     ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That is not an item id")
             db {
-                MediaItems.selectAll()
-                    .where { (MediaItems.id eq itemId) and (MediaItems.albumId eq albumId) }
+                AlbumItems.selectAll()
+                    .where { (AlbumItems.mediaItemId eq itemId) and (AlbumItems.albumId eq albumId) }
                     .singleOrNull()
             } ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That item is not in this album")
             itemId

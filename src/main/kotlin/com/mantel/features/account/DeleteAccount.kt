@@ -1,7 +1,6 @@
 package com.mantel.features.account
 
 import com.mantel.features.agent.requirePerson
-import com.mantel.features.album.Albums
 import com.mantel.features.auth.revokeSession
 import com.mantel.features.media.MediaItems
 import com.mantel.kernel.db
@@ -28,9 +27,9 @@ suspend fun deleteAccount(
     // The rows name the objects, so they are read before anything is deleted.
     val prefixes =
         db {
-            (MediaItems innerJoin Albums)
+            MediaItems
                 .selectAll()
-                .where { Albums.accountId eq accountId }
+                .where { MediaItems.accountId eq accountId }
                 .map { it[MediaItems.originalKey].substringBeforeLast('/') + "/" }
         }
 

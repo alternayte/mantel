@@ -15,8 +15,6 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.sql.SortOrder
-import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.TransactionManager
 import org.jetbrains.exposed.sql.update
@@ -109,13 +107,8 @@ suspend fun claimBundles(
             rows.map { (bundleId, albumId, variant) ->
                 val album = Albums.selectAll().where { Albums.id eq com.mantel.features.album.AlbumId(albumId) }.single()
                 val items =
-                    MediaItems.selectAll()
-                        .where {
-                            (MediaItems.albumId eq com.mantel.features.album.AlbumId(albumId)) and
-                                (MediaItems.status eq ItemState.READY)
-                        }
-                        .orderBy(MediaItems.position to SortOrder.ASC)
-                        .toList()
+                    com.mantel.features.album.itemsOf(com.mantel.features.album.AlbumId(albumId))
+                        .filter { it[MediaItems.status] == ItemState.SHAREABLE }
 
                 ClaimedBundle(
                     bundleId = bundleId.toString(),
@@ -141,7 +134,7 @@ suspend fun claimBundles(
                                 filename = bundleFilename(index + 1, row[MediaItems.filename], key),
                                 key = key,
                                 kind = row[MediaItems.kind].wire,
-                                caption = row[MediaItems.caption],
+                                caption = row[com.mantel.features.album.AlbumItems.caption],
                                 width = row[MediaItems.width],
                                 height = row[MediaItems.height],
                             )

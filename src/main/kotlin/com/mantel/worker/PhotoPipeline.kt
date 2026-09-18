@@ -3,6 +3,8 @@ package com.mantel.worker
 import java.nio.file.Path
 import java.util.concurrent.TimeUnit
 
+data class Thumbnail(val thumb: Path, val width: Int, val height: Int)
+
 data class Derivatives(val thumb: Path, val displayWebp: Path, val displayAvif: Path, val width: Int, val height: Int)
 
 /**
@@ -42,6 +44,16 @@ class PhotoPipeline(private val vips: String = "vips", private val vipsheader: S
         width: Int,
     ) {
         run(vips, "thumbnail", source.toString(), "$target[Q=82,keep=none]", width.toString())
+    }
+
+    /** What a backed-up photograph needs and nothing more: one thumbnail, for the library grid. */
+    fun thumbnailOnly(
+        source: Path,
+        into: Path,
+    ): Thumbnail {
+        val thumb = into.resolve("thumb.webp")
+        thumbnailTo(source, thumb, 300)
+        return Thumbnail(thumb, header(source, "width"), header(source, "height"))
     }
 
     fun render(

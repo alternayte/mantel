@@ -41,6 +41,7 @@ data class ClaimedItem(
     val displayAvifKey: String,
     val posterKey: String,
     val mp4Key: String,
+    val full: Boolean = true,
     val heartbeatSeconds: Long,
 )
 
@@ -264,6 +265,20 @@ class Worker(
 
             when (item.kind) {
                 "photo" -> {
+                    if (!item.full) {
+                        val size = photos.thumbnailOnly(original, scratch)
+                        storage.upload(item.thumbKey, size.thumb, "image/webp")
+                        report(
+                            item,
+                            "/derivatives",
+                            DerivativesWritten(
+                                thumbKey = item.thumbKey,
+                                width = size.width,
+                                height = size.height,
+                            ),
+                        )
+                        return@process
+                    }
                     val rendered = photos.render(original, scratch)
                     storage.upload(item.thumbKey, rendered.thumb, "image/webp")
                     storage.upload(item.displayWebpKey, rendered.displayWebp, "image/webp")
@@ -281,6 +296,25 @@ class Worker(
                     )
                 }
                 "video" -> {
+                    if (!item.full) {
+                        // The poster frame is the thumbnail's source, so a video costs one decode
+                        // to back up rather than a whole transcode.
+                        val still = videos.posterOnly(original, scratch)
+                        storage.upload(item.thumbKey, still.thumb, "image/webp")
+                        storage.upload(item.posterKey, still.poster, "image/webp")
+                        report(
+                            item,
+                            "/derivatives",
+                            DerivativesWritten(
+                                thumbKey = item.thumbKey,
+                                posterKey = item.posterKey,
+                                width = still.width,
+                                height = still.height,
+                                durationMs = still.durationMs,
+                            ),
+                        )
+                        return@process
+                    }
                     val rendered = videos.render(original, scratch)
                     storage.upload(item.thumbKey, rendered.thumb, "image/webp")
                     storage.upload(item.posterKey, rendered.poster, "image/webp")

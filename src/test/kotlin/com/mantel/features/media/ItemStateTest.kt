@@ -23,7 +23,7 @@ class ItemStateTest {
         mapOf(
             (ItemState.PENDING_UPLOAD to ItemEvent.UploadObserved) to ItemState.UPLOADED,
             (ItemState.UPLOADED to ItemEvent.Claimed) to ItemState.PROCESSING,
-            (ItemState.PROCESSING to ItemEvent.DerivativesWritten) to ItemState.READY,
+            (ItemState.PROCESSING to ItemEvent.DerivativesWritten) to ItemState.SHAREABLE,
             (ItemState.PROCESSING to ItemEvent.Exhausted("boom")) to ItemState.FAILED,
             (ItemState.PROCESSING to ItemEvent.Requeued) to ItemState.UPLOADED,
             (ItemState.PROCESSING to ItemEvent.ClaimExpired) to ItemState.UPLOADED,
@@ -51,7 +51,7 @@ class ItemStateTest {
     @Test
     fun `a ready item is finished`() {
         allEvents.forEach { event ->
-            assertThrows(IllegalTransition::class.java) { transition(ItemState.READY, event) }
+            assertThrows(IllegalTransition::class.java) { transition(ItemState.SHAREABLE, event) }
         }
     }
 
@@ -63,7 +63,7 @@ class ItemStateTest {
     @Test
     fun `the wire names are the ones the API and the database use`() {
         assertEquals(
-            listOf("pending_upload", "uploaded", "processing", "ready", "failed"),
+            listOf("pending_upload", "uploaded", "processing", "backed_up", "shareable", "failed"),
             ItemState.entries.map { it.wire },
         )
         ItemState.entries.forEach { assertEquals(it, ItemState.fromWire(it.wire)) }

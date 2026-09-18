@@ -1,12 +1,13 @@
 package com.mantel.features.share
 
 import com.mantel.features.album.AlbumId
+import com.mantel.features.album.AlbumItems
 import com.mantel.features.album.Albums
+import com.mantel.features.album.itemsOf
 import com.mantel.features.media.ItemState
 import com.mantel.features.media.MediaItems
 import com.mantel.kernel.sha256Hex
 import org.jetbrains.exposed.sql.ReferenceOption
-import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.Table
 import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.javatime.timestampWithTimeZone
@@ -76,15 +77,13 @@ fun fingerprintOf(
 ): String {
     val album = Albums.selectAll().where { Albums.id eq albumId }.single()
     val items =
-        MediaItems.selectAll()
-            .where { MediaItems.albumId eq albumId }
-            .orderBy(MediaItems.position to SortOrder.ASC)
+        itemsOf(albumId)
             .joinToString("|") { row ->
                 listOf(
                     row[MediaItems.id].toString(),
-                    row[MediaItems.position].toString(),
+                    row[AlbumItems.position].toString(),
                     row[MediaItems.status].wire,
-                    row[MediaItems.caption].orEmpty(),
+                    row[AlbumItems.caption].orEmpty(),
                     row[MediaItems.displayWebpKey].orEmpty(),
                     row[MediaItems.mp4Key].orEmpty(),
                     row[MediaItems.originalKey],
@@ -123,6 +122,7 @@ fun bundleFilename(
 
 /** An album with nothing rendered has nothing to bundle. */
 fun readyItemCount(albumId: AlbumId): Long =
-    MediaItems.selectAll()
-        .where { (MediaItems.albumId eq albumId) and (MediaItems.status eq ItemState.READY) }
+    (AlbumItems innerJoin MediaItems)
+        .selectAll()
+        .where { (AlbumItems.albumId eq albumId) and (MediaItems.status eq ItemState.SHAREABLE) }
         .count()

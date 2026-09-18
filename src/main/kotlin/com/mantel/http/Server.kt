@@ -9,6 +9,7 @@ import com.mantel.features.agent.llmsTxt
 import com.mantel.features.agent.openApiDocument
 import com.mantel.features.agent.revokeToken
 import com.mantel.features.agent.serveMcp
+import com.mantel.features.album.addItemsToAlbum
 import com.mantel.features.album.archiveAlbum
 import com.mantel.features.album.createAlbum
 import com.mantel.features.album.getAlbum
@@ -22,12 +23,16 @@ import com.mantel.features.auth.getSignInMethods
 import com.mantel.features.auth.requestMagicLink
 import com.mantel.features.auth.revokeSession
 import com.mantel.features.auth.startGitHubOAuth
+import com.mantel.features.library.deleteFromLibrary
+import com.mantel.features.library.getLibrary
 import com.mantel.features.media.claimWork
 import com.mantel.features.media.classifyObjects
+import com.mantel.features.media.completeLibraryUploads
 import com.mantel.features.media.completeUploads
+import com.mantel.features.media.createLibraryUploadIntent
 import com.mantel.features.media.createUploadIntent
-import com.mantel.features.media.deleteItem
 import com.mantel.features.media.getUploadProgress
+import com.mantel.features.media.removeFromAlbum
 import com.mantel.features.media.reorderItems
 import com.mantel.features.media.repairQuota
 import com.mantel.features.media.reportDerivatives
@@ -155,6 +160,13 @@ fun Application.module(services: Services) {
         }
         get("/api/me") { getMe(call) }
 
+        get("/api/library") { getLibrary(call, services.storage) }
+        post("/api/library/upload-intent") {
+            createLibraryUploadIntent(call, services.config, services.storage, services.clock)
+        }
+        post("/api/library/uploads/complete") { completeLibraryUploads(call, services.storage) }
+        delete("/api/library/{itemId}") { deleteFromLibrary(call, services.storage, services.clock) }
+
         get("/api/albums") { listAlbums(call) }
         post("/api/albums") { createAlbum(call) }
         get("/api/albums/{id}") { getAlbum(call, services.storage) }
@@ -169,9 +181,10 @@ fun Application.module(services: Services) {
             getUploadProgress(call, services.config, services.storage)
         }
         post("/api/albums/{id}/uploads/complete") { completeUploads(call, services.storage) }
+        post("/api/albums/{id}/items") { addItemsToAlbum(call) }
         patch("/api/albums/{id}/items/reorder") { reorderItems(call) }
         patch("/api/albums/{id}/items/{itemId}") { setCaption(call) }
-        delete("/api/albums/{id}/items/{itemId}") { deleteItem(call, services.storage) }
+        delete("/api/albums/{id}/items/{itemId}") { removeFromAlbum(call) }
         post("/api/albums/{id}/items/{itemId}/retry") { retryItem(call, services.clock) }
 
         post("/api/albums/{id}/share-links") {

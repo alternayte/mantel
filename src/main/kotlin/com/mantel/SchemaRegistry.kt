@@ -2,6 +2,7 @@ package com.mantel
 
 import com.mantel.features.account.Accounts
 import com.mantel.features.agent.ApiTokens
+import com.mantel.features.album.AlbumItems
 import com.mantel.features.album.Albums
 import com.mantel.features.auth.MagicLinks
 import com.mantel.features.auth.NativeSignIns
@@ -16,4 +17,5 @@ import org.jetbrains.exposed.sql.Table
  * creates it, and SchemaDriftTest asserts this list matches what Flyway actually built.
  * It lives at the composition root because it is the one place allowed to see every feature.
  */
-val allTables: List<Table> = listOf(Accounts, MagicLinks, NativeSignIns, Sessions, Albums, MediaItems, ShareLinks, AlbumBundles, ApiTokens)
+val allTables: List<Table> =
+    listOf(Accounts, MagicLinks, NativeSignIns, Sessions, Albums, MediaItems, AlbumItems, ShareLinks, AlbumBundles, ApiTokens)

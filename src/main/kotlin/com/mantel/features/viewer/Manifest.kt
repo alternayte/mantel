@@ -18,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.ResultRow
-import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.selectAll
 import java.time.Duration
 import java.time.OffsetDateTime
@@ -97,13 +96,7 @@ suspend fun getManifest(
     val album =
         db { Albums.selectAll().where { Albums.id eq linked.albumId }.singleOrNull() }
             ?: throw DomainException(ErrorCode.NOT_FOUND, "No such album")
-    val rows =
-        db {
-            MediaItems.selectAll()
-                .where { MediaItems.albumId eq linked.albumId }
-                .orderBy(MediaItems.position to SortOrder.ASC)
-                .toList()
-        }
+    val rows = db { com.mantel.features.album.itemsOf(linked.albumId) }
 
     val items = withContext(Dispatchers.IO) { rows.map { it.toManifestItem(storage) } }
 
@@ -113,7 +106,7 @@ suspend fun getManifest(
             description = album[Albums.description],
             status = album[Albums.status].wire,
             itemCount = rows.size,
-            readyCount = rows.count { it[MediaItems.status] == ItemState.READY },
+            readyCount = rows.count { it[MediaItems.status] == ItemState.SHAREABLE },
             items = items,
         ),
     )
@@ -124,7 +117,7 @@ suspend fun getManifest(
  * placeholder rather than a broken grid, and a failed one does not silently disappear (SDD.md 4.4).
  */
 private fun ResultRow.toManifestItem(storage: ObjectStorage): ManifestItem {
-    val ready = this[MediaItems.status] == ItemState.READY
+    val ready = this[MediaItems.status] == ItemState.SHAREABLE
 
     fun url(key: String?) = key?.takeIf { ready }?.let { storage.presignGetForThisHour(it, MEDIA_URL_LIFETIME) }
 
@@ -132,7 +125,7 @@ private fun ResultRow.toManifestItem(storage: ObjectStorage): ManifestItem {
         id = this[MediaItems.id].toString(),
         kind = this[MediaItems.kind].wire,
         status = this[MediaItems.status].wire,
-        caption = this[MediaItems.caption],
+        caption = this[com.mantel.features.album.AlbumItems.caption],
         width = this[MediaItems.width],
         height = this[MediaItems.height],
         durationMs = this[MediaItems.durationMs],

@@ -4,7 +4,10 @@ import com.mantel.features.account.Accounts
 import com.mantel.features.account.mediaPrefixFor
 import com.mantel.features.account.quota
 import com.mantel.features.album.Albums
+import com.mantel.features.album.addToAlbum
+import com.mantel.features.album.albumBytesOf
 import com.mantel.features.album.albumIdFrom
+import com.mantel.features.album.albumSizeOf
 import com.mantel.features.album.demand
 import com.mantel.kernel.Bytes
 import com.mantel.kernel.Clock
@@ -21,7 +24,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.insert
-import org.jetbrains.exposed.sql.max
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.update
 import java.time.Duration
@@ -31,8 +33,17 @@ import java.time.ZoneOffset
 @Serializable
 data class UploadIntentRequest(val files: List<DeclaredFile>)
 
+/**
+ * `contentHash` is the SHA-256 of the original bytes. A client that sends one is told when the
+ * library already holds the file, and sends no bytes at all.
+ */
 @Serializable
-data class DeclaredFile(val filename: String, val contentType: String, val sizeBytes: Long)
+data class DeclaredFile(
+    val filename: String,
+    val contentType: String,
+    val sizeBytes: Long,
+    val contentHash: String? = null,
+)
 
 @Serializable
 data class UploadIntentResponse(val items: List<PresignedUpload>, val expiresInSeconds: Long)
@@ -53,6 +64,8 @@ data class PresignedUpload(
     val uploadUrl: String? = null,
     val uploadId: String? = null,
     val parts: List<PresignedPart>? = null,
+    /** The library already holds these bytes. No URL is issued and nothing is reserved. */
+    val alreadyHeld: Boolean = false,
 )
 
 /** The part boundaries for a file, all full except the last. */
@@ -68,7 +81,10 @@ fun partsFor(
 private val PRESIGN_LIFETIME: Duration = Duration.ofHours(1)
 private const val MAX_BATCH = 200
 
-private data class Reserved(val id: ItemId, val key: String, val file: DeclaredFile)
+private data class Reserved(val id: ItemId, val key: String, val file: DeclaredFile, val held: Boolean)
+
+/** base64url and hex both appear in the wild; a SHA-256 is 64 hex characters here. */
+private val HASH = Regex("^[0-9a-f]{64}$")
 
 /**
  * Quota is checked here, before any presigned URL exists, and the declared size is reserved at the
@@ -89,22 +105,31 @@ suspend fun createUploadIntent(
     call.respond(uploadIntentFor(caller, albumIdFrom(call), request.files, config, storage, clock))
 }
 
+/** The same intent with no album behind it: media goes to the library and is selected later. */
+suspend fun createLibraryUploadIntent(
+    call: ApplicationCall,
+    config: Config,
+    storage: ObjectStorage,
+    clock: Clock = Clock.system,
+) {
+    val caller = com.mantel.features.agent.requireScope(call, com.mantel.features.agent.Scope.ALBUMS_WRITE)
+    val request = call.receive<UploadIntentRequest>()
+    call.respond(uploadIntentFor(caller, null, request.files, config, storage, clock))
+}
+
 /** The command. The route above and the MCP tool both call this and nothing else. */
 suspend fun uploadIntentFor(
     caller: com.mantel.features.agent.Caller,
-    albumIdValue: com.mantel.features.album.AlbumId,
+    albumIdValue: com.mantel.features.album.AlbumId?,
     files: List<DeclaredFile>,
     config: Config,
     storage: ObjectStorage,
     clock: Clock = Clock.system,
 ): UploadIntentResponse {
-    val album =
-        com.mantel.features.album.requireOwnAlbumFor(
-            caller.demand(com.mantel.features.agent.Scope.ALBUMS_WRITE),
-            albumIdValue,
-        )
-    val albumId = album[Albums.id]
-    val accountId = album[Albums.accountId]
+    val owner = caller.demand(com.mantel.features.agent.Scope.ALBUMS_WRITE)
+    val album = albumIdValue?.let { com.mantel.features.album.requireOwnAlbumFor(owner, it) }
+    val albumId = album?.get(Albums.id)
+    val accountId = album?.get(Albums.accountId) ?: owner.accountId
     val request = UploadIntentRequest(files)
 
     if (request.files.isEmpty()) throw DomainException(ErrorCode.VALIDATION_FAILED, "No files declared")
@@ -117,17 +142,32 @@ suspend fun uploadIntentFor(
                 runCatching { Bytes.of(file.sizeBytes) }.getOrElse {
                     throw DomainException(ErrorCode.VALIDATION_FAILED, "${file.filename} declares no bytes")
                 }
-            if (file.contentType !in ACCEPTED_TYPES) {
+            // The format check used to refuse anything the pipelines cannot open. The library keeps
+            // what the camera produced, so the ceiling is what refuses a file now.
+            if (size > config.maxFileBytes) {
+                throw DomainException(
+                    ErrorCode.VALIDATION_FAILED,
+                    "${file.filename} is larger than this instance accepts",
+                    mapOf("maxBytes" to config.maxFileBytes.value.toString()),
+                )
+            }
+            // An album shows photographs. A file the product cannot open is kept in the library and
+            // is not something a viewer could be shown.
+            if (albumIdValue != null && file.contentType !in ACCEPTED_TYPES) {
                 throw DomainException(
                     ErrorCode.VALIDATION_FAILED,
                     "${file.contentType} is not a photo or video this can render",
                     mapOf("accepted" to ACCEPTED_TYPES.keys.joinToString(", ")),
                 )
             }
+            file.contentHash?.let {
+                if (!HASH.matches(it)) {
+                    throw DomainException(ErrorCode.VALIDATION_FAILED, "${file.filename} declares a malformed hash")
+                }
+            }
             file to size
         }
 
-    val batchSize = declared.fold(Bytes.NONE) { total, (_, size) -> total + size }
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
 
     // The account row is locked for the length of the reservation. One transaction is not enough on
@@ -137,6 +177,18 @@ suspend fun uploadIntentFor(
         db {
             val account = Accounts.selectAll().where { Accounts.id eq accountId }.forUpdate().single()
             val quota = account.quota()
+
+            // Only bytes the account does not already hold cost anything. A photograph sent twice
+            // counts once, whatever number of albums point at it.
+            val alreadyHeld =
+                declared.mapNotNull { (file, _) -> file.contentHash }
+                    .distinct()
+                    .mapNotNull { hash -> held(accountId, hash)?.let { hash to it } }
+                    .toMap()
+            val batchSize =
+                declared.filterNot { (file, _) -> file.contentHash in alreadyHeld.keys }
+                    .fold(Bytes.NONE) { total, (_, size) -> total + size }
+
             if (!quota.fits(batchSize)) {
                 throw DomainException(
                     ErrorCode.QUOTA_EXCEEDED,
@@ -148,23 +200,23 @@ suspend fun uploadIntentFor(
                 )
             }
 
-            val startPosition =
-                (
-                    MediaItems.select(MediaItems.position.max())
-                        .where { MediaItems.albumId eq albumId }
-                        .single()[MediaItems.position.max()] ?: -1
-                ) + 1
-
             val created =
-                declared.mapIndexed { index, (file, size) ->
+                declared.map { (file, size) ->
+                    val existing = alreadyHeld[file.contentHash]
+                    if (existing != null) {
+                        albumId?.let { addToAlbum(it, existing[MediaItems.id], now) }
+                        return@map Reserved(existing[MediaItems.id], existing[MediaItems.originalKey], file, held = true)
+                    }
                     val itemId = ItemId(Ids.uuidV7(clock))
-                    val (kind, extension) = ACCEPTED_TYPES.getValue(file.contentType)
+                    val classified = ACCEPTED_TYPES[file.contentType]
+                    val extension = classified?.second ?: extensionOf(file.filename)
                     val key = "${mediaPrefixFor(itemId)}original.$extension"
                     MediaItems.insert {
                         it[id] = itemId
-                        it[MediaItems.albumId] = albumId
-                        it[position] = startPosition + index
-                        it[MediaItems.kind] = kind
+                        it[MediaItems.accountId] = accountId
+                        it[contentHash] = file.contentHash
+                        it[renderable] = classified != null
+                        it[MediaItems.kind] = classified?.first ?: MediaKind.FILE
                         it[MediaItems.filename] = file.filename.take(200)
                         it[originalKey] = key
                         it[byteSize] = size
@@ -172,16 +224,19 @@ suspend fun uploadIntentFor(
                         it[attempts] = 0
                         it[createdAt] = now
                     }
-                    Reserved(itemId, key, file)
+                    albumId?.let { addToAlbum(it, itemId, now) }
+                    Reserved(itemId, key, file, held = false)
                 }
 
             Accounts.update({ Accounts.id eq accountId }) {
                 it[storageUsedBytes] = quota.reserve(batchSize).used
             }
-            Albums.update({ Albums.id eq albumId }) {
-                it[itemCount] = album[Albums.itemCount] + created.size
-                it[totalBytes] = album[Albums.totalBytes] + batchSize
-                it[updatedAt] = now
+            albumId?.let { id ->
+                Albums.update({ Albums.id eq id }) {
+                    it[itemCount] = albumSizeOf(id)
+                    it[totalBytes] = albumBytesOf(id)
+                    it[updatedAt] = now
+                }
             }
             created
         }
@@ -189,7 +244,15 @@ suspend fun uploadIntentFor(
     val presigned =
         withContext(Dispatchers.IO) {
             reserved.map { item ->
-                if (item.file.sizeBytes <= config.storage.multipartThreshold.value) {
+                if (item.held) {
+                    PresignedUpload(
+                        itemId = item.id.toString(),
+                        filename = item.file.filename,
+                        contentType = item.file.contentType,
+                        sizeBytes = item.file.sizeBytes,
+                        alreadyHeld = true,
+                    )
+                } else if (item.file.sizeBytes <= config.storage.multipartThreshold.value) {
                     PresignedUpload(
                         itemId = item.id.toString(),
                         filename = item.file.filename,

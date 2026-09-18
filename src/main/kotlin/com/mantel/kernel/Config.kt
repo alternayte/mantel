@@ -10,6 +10,8 @@ data class Config(
     val port: Int,
     val publicBaseUrl: String,
     val defaultQuota: Bytes,
+    /** The largest single file the library accepts. The format check no longer refuses anything. */
+    val maxFileBytes: Bytes,
     val cookieSecret: String,
     val devAssetsOrigin: String?,
     val database: DatabaseConfig,
@@ -25,6 +27,7 @@ data class Config(
                 publicBaseUrl = env("MANTEL_PUBLIC_BASE_URL") ?: "http://localhost:8080",
                 // One number, no tiers. SDD.md 14.1 leaves pricing open; this is not it.
                 defaultQuota = Bytes(env("MANTEL_DEFAULT_QUOTA_BYTES")?.toLong() ?: (10L * 1024 * 1024 * 1024)),
+                maxFileBytes = Bytes(env("MANTEL_MAX_FILE_BYTES")?.toLong() ?: (5L * 1024 * 1024 * 1024)),
                 // Signs the PIN unlock cookie. Unset means a fresh one each start, which only costs
                 // viewers of PIN'd albums an extra unlock after a restart.
                 cookieSecret = env("MANTEL_COOKIE_SECRET") ?: Ids.token(32),
