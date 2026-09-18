@@ -60,6 +60,10 @@ use: share links and the OG tags are built from it.
 **`MANTEL_COOKIE_SECRET` must be set and must be stable.** Unset, a new one is generated each start,
 and viewers of PIN'd albums have to unlock again after every restart.
 
+**The worker is the same image with `--worker`.** Where a platform will not let you override the
+image command — Coolify's Docker image resources are one — set `MANTEL_ROLE=worker` instead. A
+worker that starts as a second API server reports itself healthy and renders nothing.
+
 **`MANTEL_WORKER_TOKEN` must be set,** or the worker cannot claim anything and no photograph is ever
 rendered. The worker holds no database credentials; this token is how it talks to the API.
 
@@ -130,7 +134,7 @@ delete those objects a day later, so restore the database first.
 
 ## Upgrading
 
-Images are published to `ghcr.io/alternayte/mantel` on every tag: `0.3.0`, `0.3` and `latest`. Pin a
+Images are published to `ghcr.io/alternayte/mantel` on every tag: `0.3.1`, `0.3` and `latest`. Pin a
 version in a deployment; `latest` is for trying it.
 
 Pull the image and restart. Migrations run at startup, and a migration the app cannot parse stops it
