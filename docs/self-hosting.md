@@ -8,7 +8,7 @@ and PostgreSQL; object storage is anything S3-compatible.
 ```yaml
 services:
   app:
-    image: ghcr.io/alternayte/mantel:latest
+    image: ghcr.io/alternayte/mantel:latest   # or a version tag, which is what a deployment should pin
     environment:
       MANTEL_PUBLIC_BASE_URL: https://albums.example.com
       MANTEL_DB_URL: jdbc:postgresql://postgres:5432/mantel
@@ -26,7 +26,7 @@ services:
     depends_on: [postgres]
 
   worker:
-    image: ghcr.io/alternayte/mantel:latest
+    image: ghcr.io/alternayte/mantel:latest   # or a version tag, which is what a deployment should pin
     command: ["--worker"]
     environment:
       MANTEL_PUBLIC_BASE_URL: http://app:8080
@@ -126,6 +126,9 @@ restored without its database is a folder of files nobody can reach: the reconci
 delete those objects a day later, so restore the database first.
 
 ## Upgrading
+
+Images are published to `ghcr.io/alternayte/mantel` on every tag: `1.0.0`, `1.0` and `latest`. Pin a
+version in a deployment; `latest` is for trying it.
 
 Pull the image and restart. Migrations run at startup, and a migration the app cannot parse stops it
 rather than being skipped. Roll back by deploying the previous image only if the newer one added no
