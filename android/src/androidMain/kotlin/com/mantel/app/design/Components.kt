@@ -2,7 +2,6 @@ package com.mantel.app.design
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -203,7 +202,7 @@ fun Button(
             .fillMaxWidth()
             .background(background, RoundedCornerShape(Tokens.Radius.card))
             .border(1.dp, if (quiet) Tokens.Colour.line else background, RoundedCornerShape(Tokens.Radius.card))
-            .clickable(enabled = enabled) { onClick() }
+            .pressable(enabled = enabled) { onClick() }
             .padding(vertical = 14.dp),
         contentAlignment = Alignment.Center,
     ) {
@@ -236,7 +235,7 @@ fun <T> Choices(
                         RoundedCornerShape(Tokens.Radius.card),
                     )
                     .border(1.dp, Tokens.Colour.line, RoundedCornerShape(Tokens.Radius.card))
-                    .clickable { onSelect(value) }
+                    .pressable { onSelect(value) }
                     .padding(vertical = 10.dp),
                 contentAlignment = Alignment.Center,
             ) {

@@ -22,11 +22,8 @@ The pre-commit hook at `.githooks/pre-commit` runs `checks/vocabulary.sh` and ev
 
 ## Layout
 
-`src/main/kotlin/com/mantel/kernel/`, `src/main/kotlin/com/mantel/storage/`,
-`src/main/kotlin/com/mantel/http/`, `src/main/kotlin/com/mantel/worker/` and
-`src/main/kotlin/com/mantel/features/`. One feature file holds its command or query, its validation,
-its handler and its route. Flyway owns the schema in `src/main/resources/db/migration/`; Exposed
-tables only read it and are registered in `src/main/kotlin/com/mantel/SchemaRegistry.kt`.
+`src/main/kotlin/com/mantel/kernel/`, `src/main/kotlin/com/mantel/storage/`, `src/main/kotlin/com/mantel/http/`, `src/main/kotlin/com/mantel/worker/` and `src/main/kotlin/com/mantel/features/`. One feature file holds its command or query, its validation, its handler and its route.
+Flyway owns the schema in `src/main/resources/db/migration/`; Exposed tables only read it and are registered in `src/main/kotlin/com/mantel/SchemaRegistry.kt`.
 `src/test/kotlin/com/mantel/convention/` fails the build on architectural drift.
 
 ## Stack rules
@@ -61,3 +58,6 @@ tables only read it and are registered in `src/main/kotlin/com/mantel/SchemaRegi
 - sync: the Android app's one-way, additive background upload of the phone's media to the library. Avoid: mirror, two-way sync.
 - backed up: a media item whose original and thumbnail exist and whose viewer derivatives do not. Avoid: saved.
 - shareable: a media item whose every derivative exists, so an album holding it can publish.
+- held: data AppModel keeps in memory across a screen change, drawn at once and then refreshed. Avoid: cached, cache.
+- peer: a destination that replaces another rather than pushing onto the stack; albums and the library. Avoid: tab, top-level destination.
+- type switch: the ALBUMS / LIBRARY control in the title style that moves between the two peers. Avoid: nav bar, bottom nav, tab bar.

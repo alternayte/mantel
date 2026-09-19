@@ -2,8 +2,6 @@ package com.mantel.app
 
 import android.content.Context
 import android.net.Uri
-import androidx.work.WorkInfo
-import androidx.work.WorkManager
 import com.mantel.app.api.AlbumSummary
 import com.mantel.app.api.AlbumView
 import com.mantel.app.api.ApiException
@@ -16,11 +14,14 @@ import com.mantel.app.api.SignInMethods
 import com.mantel.app.api.state
 import com.mantel.app.auth.Pkce
 import com.mantel.app.auth.Settings
+import com.mantel.app.auth.StoredSettings
+import com.mantel.app.media.Backup
 import com.mantel.app.media.DeviceMedia
 import com.mantel.app.media.MediaFolder
-import com.mantel.app.media.SyncSettings
-import com.mantel.app.media.SyncWorker
-import com.mantel.app.media.UploadWorker
+import com.mantel.app.media.PhoneBackup
+import com.mantel.app.media.UploadReport
+import com.mantel.app.media.Uploads
+import com.mantel.app.media.WorkManagerUploads
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -32,8 +33,9 @@ import kotlinx.coroutines.launch
 /**
  * What the app is showing, and how it moves between those states.
  *
- * The screens are the shape of the product: sign in, the albums, one album. There is no navigation
- * library here because there is nothing to navigate.
+ * The screens are the shape of the product: sign in, the two peers — the albums and the library —
+ * and the screens you visit from them. There is no navigation library here; the stack is a list in
+ * the model, because six screens and one back gesture do not need routes (DESIGN.md).
  */
 sealed interface Screen {
     data object Starting : Screen
@@ -52,6 +54,7 @@ sealed interface Screen {
         val albums: List<AlbumSummary> = emptyList(),
         val newTitle: String = "",
         val busy: Boolean = false,
+        val refreshing: Boolean = false,
         val error: String? = null,
         val retryable: Boolean = false,
     ) : Screen
@@ -62,7 +65,13 @@ sealed interface Screen {
         val selected: Set<String> = emptySet(),
         val albums: List<AlbumSummary> = emptyList(),
         val addingTo: Boolean? = null,
+        /** The album this library was opened to add to, if it was opened from one. */
+        val pickingFor: String? = null,
+        /** Where the next page starts. Null once the library has all of it. */
+        val cursor: String? = null,
+        val loadingMore: Boolean = false,
         val busy: Boolean = false,
+        val refreshing: Boolean = false,
         val error: String? = null,
         val retryable: Boolean = false,
     ) : Screen
@@ -126,12 +135,44 @@ sealed interface Effect {
     data class ShareText(val url: String) : Effect
 }
 
+/**
+ * What the app has already read from the server, kept across a screen change.
+ *
+ * A screen that starts empty and fills when the network answers is the whole of the lag people
+ * describe as slowness, and no animation hides it (DESIGN.md). So a screen draws this first and
+ * refreshes underneath it. It is memory only: a cold start reads the server, because a copy from
+ * days ago is worse than a blank screen.
+ */
+private class Held {
+    var albums: List<AlbumSummary>? = null
+    var library: LibraryHeld? = null
+    val opened = mutableMapOf<String, Pair<AlbumView, List<ShareLinkView>>>()
+
+    fun forget(albumId: String) {
+        opened.remove(albumId)
+    }
+}
+
+private data class LibraryHeld(
+    val items: List<ItemView>,
+    val totalItems: Long,
+    val cursor: String?,
+)
+
 class AppModel(
-    context: Context,
+    private val settings: Settings,
+    private val backup: Backup,
+    private val uploads: Uploads,
+    private val api: (String, String?) -> MantelApi,
     private val scope: CoroutineScope,
 ) {
-    private val context = context.applicationContext
-    private val settings = Settings(this.context)
+    constructor(context: Context, scope: CoroutineScope) : this(
+        settings = StoredSettings(context.applicationContext),
+        backup = PhoneBackup(context.applicationContext),
+        uploads = WorkManagerUploads(context.applicationContext),
+        api = { url, session -> MantelApi(url, session) },
+        scope = scope,
+    )
 
     private val _screen = MutableStateFlow<Screen>(Screen.Starting)
     val screen: StateFlow<Screen> = _screen
@@ -142,13 +183,75 @@ class AppModel(
     private val _upload = MutableStateFlow<UploadStatus?>(null)
     val upload: StateFlow<UploadStatus?> = _upload
 
+    /** Whether a back gesture has somewhere to go. A peer is the bottom of the stack. */
+    private val _canGoBack = MutableStateFlow(false)
+    val canGoBack: StateFlow<Boolean> = _canGoBack
+
+    private val stack = ArrayDeque<Screen>()
+    private val held = Held()
+
     private var watching: Job? = null
+    private var reporting: Job? = null
+
+    /** The album poll runs while the app is in front of somebody, and not in a pocket. */
+    private val resumed = MutableStateFlow(true)
 
     /** Who is signed in, so that leaving an album does not have to ask the server again. */
     private var account: Me? = null
 
     fun effectHandled() {
         _effects.value = null
+    }
+
+    fun resumed(value: Boolean) {
+        resumed.value = value
+    }
+
+    // --- navigation ---------------------------------------------------------------------------
+
+    /** A screen you visit. Back returns to whatever you were on. */
+    private fun push(screen: Screen) {
+        stack.addLast(_screen.value)
+        show(screen)
+    }
+
+    /** A peer replaces the other peer and is the bottom of the stack (DESIGN.md). */
+    private fun peer(screen: Screen) {
+        stack.clear()
+        show(screen)
+    }
+
+    /** A screen that is not part of the stack at all: sign-in, and the app starting. */
+    private fun root(screen: Screen) {
+        stack.clear()
+        show(screen)
+    }
+
+    private fun show(screen: Screen) {
+        watching?.cancel()
+        reporting?.cancel()
+        _upload.value = null
+        _screen.value = screen
+        _canGoBack.value = stack.isNotEmpty()
+    }
+
+    /** Leaves a screen for the one beneath it, which is already filled and is re-read underneath. */
+    fun back() {
+        val beneath = stack.removeLastOrNull() ?: return
+        show(beneath)
+        when (beneath) {
+            is Screen.Albums -> refreshAlbums()
+            is Screen.Library -> refreshLibrary()
+            is Screen.Album -> resume(beneath.album.id)
+            else -> Unit
+        }
+    }
+
+    /** The albums, as a peer. */
+    fun openAlbums() {
+        val me = account ?: return
+        peer(Screen.Albums(me, albums = held.albums.orEmpty()))
+        refreshAlbums()
     }
 
     // --- sign in ------------------------------------------------------------------------------
@@ -163,7 +266,7 @@ class AppModel(
             val serverUrl = settings.serverUrl.first()
             val session = settings.session.first()
             if (serverUrl == null) {
-                _screen.value = Screen.SignIn()
+                root(Screen.SignIn())
                 return@launch
             }
             if (session != null) {
@@ -171,7 +274,7 @@ class AppModel(
                     val me = api(serverUrl, session).use { it.me() }
                     settings.setMe(me)
                     account = me
-                    _screen.value = Screen.Albums(me)
+                    root(Screen.Albums(me))
                     refreshAlbums()
                     return@launch
                 } catch (e: java.io.IOException) {
@@ -180,26 +283,28 @@ class AppModel(
                     val cached = settings.me.first()
                     if (cached != null) {
                         account = cached
-                        _screen.value =
+                        root(
                             Screen.Albums(
                                 cached,
                                 error = "That server did not answer. You may be offline.",
                                 retryable = true,
-                            )
+                            ),
+                        )
                         return@launch
                     }
-                    _screen.value =
+                    root(
                         Screen.SignIn(
                             serverUrl = serverUrl,
                             error = "That server did not answer. You may be offline.",
-                        )
+                        ),
+                    )
                     return@launch
                 } catch (e: ApiException) {
                     // The server answered and refused: this session is over.
                     settings.clearSession()
                 }
             }
-            _screen.value = Screen.SignIn(serverUrl = serverUrl)
+            root(Screen.SignIn(serverUrl = serverUrl))
             loadMethods(serverUrl)
         }
     }
@@ -250,7 +355,7 @@ class AppModel(
         scope.launch {
             val verifier = Pkce.verifier()
             settings.startFlow(verifier)
-            val url = api(state.serverUrl).use { it.githubSignInUrl(Pkce.challenge(verifier)) }
+            val url = api(state.serverUrl, null).use { it.githubSignInUrl(Pkce.challenge(verifier)) }
             _effects.value = Effect.OpenBrowser(url)
         }
     }
@@ -273,7 +378,7 @@ class AppModel(
                 val me = api(serverUrl, session).use { it.me() }
                 settings.setMe(me)
                 account = me
-                _screen.value = Screen.Albums(me)
+                root(Screen.Albums(me))
                 refreshAlbums()
             }
         }
@@ -281,14 +386,16 @@ class AppModel(
 
     fun signOut() {
         scope.launch {
-            watching?.cancel()
             account = null
+            held.albums = null
+            held.library = null
+            held.opened.clear()
             val serverUrl = settings.serverUrl.first() ?: return@launch
             val session = settings.session.first()
             // The session row goes whether or not the network is there; the local copy always does.
             runCatching { api(serverUrl, session).use { it.logout() } }
             settings.clearSession()
-            _screen.value = Screen.SignIn(serverUrl = serverUrl)
+            root(Screen.SignIn(serverUrl = serverUrl))
             loadMethods(serverUrl)
         }
     }
@@ -310,7 +417,8 @@ class AppModel(
         scope.launch {
             onAlbums { api, _ ->
                 val albums = api.albums()
-                _screen.update<Screen.Albums> { it.copy(albums = albums, busy = false) }
+                held.albums = albums
+                _screen.update<Screen.Albums> { it.copy(albums = albums, busy = false, refreshing = false) }
             }
         }
     }
@@ -322,6 +430,7 @@ class AppModel(
         scope.launch {
             onAlbums { api, _ ->
                 val created = api.createAlbum(title)
+                held.albums = null
                 _screen.update<Screen.Albums> { it.copy(newTitle = "", busy = false) }
                 open(created.id)
             }
@@ -330,16 +439,13 @@ class AppModel(
 
     // --- backup -------------------------------------------------------------------------------
 
-    private val sync = SyncSettings(this.context)
-
     fun openSync() {
-        watching?.cancel()
-        _screen.value = Screen.Sync()
+        push(Screen.Sync())
         // The worker writes when it last ran, so the screen follows the settings rather than
         // reading them once and then telling the person something that stopped being true.
         watching =
             scope.launch {
-                sync.state.collect { state ->
+                backup.state.collect { state ->
                     val known = (_screen.value as? Screen.Sync)?.folders ?: emptyList()
                     _screen.update<Screen.Sync> {
                         it.copy(
@@ -366,8 +472,8 @@ class AppModel(
             return
         }
         scope.launch {
-            sync.setEnabled(false)
-            SyncWorker.schedule(context, sync.state.first())
+            backup.setEnabled(false)
+            backup.reschedule()
             _screen.update<Screen.Sync> { it.copy(enabled = false, folders = emptyList()) }
         }
     }
@@ -381,17 +487,17 @@ class AppModel(
                 }
                 return@launch
             }
-            sync.setEnabled(true)
+            backup.setEnabled(true)
             // Camera, and nothing else, until somebody says otherwise.
-            val folders = DeviceMedia.folders(context)
-            val current = sync.state.first()
+            val folders = backup.folders()
+            val current = backup.state.first()
             if (current.folders.isEmpty()) {
                 val camera = folders.filter { it.name == DeviceMedia.CAMERA }.map { it.id }.toSet()
-                sync.setFolders(camera)
+                backup.setFolders(camera)
             }
-            val settled = sync.state.first()
-            SyncWorker.schedule(context, settled)
-            SyncWorker.runNow(context)
+            val settled = backup.state.first()
+            backup.reschedule()
+            backup.runNow()
             _screen.update<Screen.Sync> {
                 it.copy(enabled = true, folders = folders, selected = settled.folders, error = null)
             }
@@ -399,7 +505,7 @@ class AppModel(
     }
 
     private suspend fun loadFolders() {
-        val folders = DeviceMedia.folders(context)
+        val folders = backup.folders()
         _screen.update<Screen.Sync> { it.copy(folders = folders) }
     }
 
@@ -408,48 +514,101 @@ class AppModel(
         val next = state.selected.toMutableSet()
         if (!next.add(folderId)) next.remove(folderId)
         scope.launch {
-            sync.setFolders(next)
+            backup.setFolders(next)
             _screen.update<Screen.Sync> { it.copy(selected = next) }
         }
     }
 
     fun setUnmeteredOnly(value: Boolean) {
         scope.launch {
-            sync.setUnmeteredOnly(value)
-            SyncWorker.schedule(context, sync.state.first())
+            backup.setUnmeteredOnly(value)
+            backup.reschedule()
             _screen.update<Screen.Sync> { it.copy(unmeteredOnly = value) }
         }
     }
 
     fun setWhileCharging(value: Boolean) {
         scope.launch {
-            sync.setWhileCharging(value)
-            SyncWorker.schedule(context, sync.state.first())
+            backup.setWhileCharging(value)
+            backup.reschedule()
             _screen.update<Screen.Sync> { it.copy(whileCharging = value) }
         }
     }
 
     fun syncNow() {
-        SyncWorker.runNow(context)
+        backup.runNow()
     }
 
     // --- library ------------------------------------------------------------------------------
 
+    /** The library, as a peer. */
     fun openLibrary() {
-        scope.launch {
-            watching?.cancel()
-            _screen.value = Screen.Library()
-            refreshLibrary()
-        }
+        peer(libraryScreen(pickingFor = null))
+        refreshLibrary()
+    }
+
+    /**
+     * The library, opened over an album to take items from it. It is the same screen doing a job,
+     * so back returns to the album rather than leaving it.
+     */
+    fun addFromLibrary() {
+        val albumId = (_screen.value as? Screen.Album)?.album.let { it?.id } ?: return
+        push(libraryScreen(pickingFor = albumId))
+        refreshLibrary()
+    }
+
+    /** The library as it was last read. Drawn at once; the fetch replaces it when it answers. */
+    private fun libraryScreen(pickingFor: String?): Screen.Library {
+        val last = held.library
+        return Screen.Library(
+            items = last?.items.orEmpty(),
+            totalItems = last?.totalItems ?: 0,
+            cursor = last?.cursor,
+            albums = held.albums.orEmpty(),
+            pickingFor = pickingFor,
+        )
     }
 
     private fun refreshLibrary() {
         scope.launch {
             onLibrary { api ->
-                val page = api.library()
-                val albums = api.albums()
+                val page = api.library(limit = LIBRARY_PAGE)
+                held.library = LibraryHeld(page.items, page.totalItems, page.next)
                 _screen.update<Screen.Library> {
-                    it.copy(items = page.items, totalItems = page.totalItems, albums = albums, busy = false)
+                    it.copy(
+                        items = page.items,
+                        totalItems = page.totalItems,
+                        cursor = page.next,
+                        busy = false,
+                        refreshing = false,
+                    )
+                }
+            }
+        }
+    }
+
+    /** The next page, asked for as the grid nears its end. The library is not one screenful. */
+    fun loadMoreLibrary() {
+        val state = _screen.value as? Screen.Library ?: return
+        val cursor = state.cursor ?: return
+        if (state.loadingMore) return
+        _screen.update<Screen.Library> { it.copy(loadingMore = true) }
+        scope.launch {
+            withApi(
+                onApiError = { message, retryable ->
+                    _screen.update<Screen.Library> {
+                        it.copy(loadingMore = false, error = message, retryable = retryable)
+                    }
+                },
+            ) { api ->
+                val page = api.library(after = cursor, limit = LIBRARY_PAGE)
+                val current = _screen.value as? Screen.Library ?: return@withApi
+                // The cursor moved while this was in flight, so this page is not the next one.
+                if (current.cursor != cursor) return@withApi
+                val items = current.items + page.items
+                held.library = LibraryHeld(items, page.totalItems, page.next)
+                _screen.update<Screen.Library> {
+                    it.copy(items = items, cursor = page.next, loadingMore = false)
                 }
             }
         }
@@ -463,8 +622,17 @@ class AppModel(
         }
     }
 
+    /** The albums to add to. They are held, so the list is there before the server answers. */
     fun chooseAlbum() {
-        _screen.update<Screen.Library> { it.copy(addingTo = true) }
+        _screen.update<Screen.Library> { it.copy(addingTo = true, albums = held.albums.orEmpty()) }
+        if (held.albums != null) return
+        scope.launch {
+            withApi(onApiError = { _, _ -> }) { api ->
+                val albums = api.albums()
+                held.albums = albums
+                _screen.update<Screen.Library> { it.copy(albums = albums) }
+            }
+        }
     }
 
     fun cancelAdd() {
@@ -474,11 +642,15 @@ class AppModel(
     /** Selecting library media into an album. Nothing is copied and nothing costs quota. */
     fun addSelectionTo(albumId: String) {
         val state = _screen.value as? Screen.Library ?: return
+        val pickingFor = state.pickingFor
         scope.launch {
             onLibrary { api ->
                 api.addToAlbum(albumId, state.selected.toList())
+                held.forget(albumId)
+                held.albums = null
                 _screen.update<Screen.Library> { it.copy(selected = emptySet(), addingTo = null, busy = false) }
-                open(albumId)
+                // Adding from an album returns to it; adding from the library peer opens it.
+                if (pickingFor == albumId) back() else open(albumId)
             }
         }
     }
@@ -489,6 +661,7 @@ class AppModel(
         scope.launch {
             onLibrary { api ->
                 state.selected.forEach { api.deleteFromLibrary(it) }
+                held.opened.clear()
                 _screen.update<Screen.Library> { it.copy(selected = emptySet(), busy = false) }
                 refreshLibrary()
             }
@@ -499,7 +672,9 @@ class AppModel(
         _screen.update<Screen.Library> { it.copy(busy = true, error = null, retryable = false) }
         withApi(
             onApiError = { message, retryable ->
-                _screen.update<Screen.Library> { it.copy(busy = false, error = message, retryable = retryable) }
+                _screen.update<Screen.Library> {
+                    it.copy(busy = false, refreshing = false, error = message, retryable = retryable)
+                }
             },
         ) { api -> block(api) }
     }
@@ -508,30 +683,29 @@ class AppModel(
         scope.launch { open(albumId) }
     }
 
+    /**
+     * An album you have opened before is on the screen before the server answers. One you have not
+     * is drawn from what the album list already says about it: its title, and a tile for every item
+     * it holds, in the right places, rather than an empty screen that fills in a moment.
+     */
     private suspend fun open(albumId: String) {
-        val serverUrl = settings.serverUrl.first() ?: return
-        val session = settings.session.first() ?: return
-        try {
-            val (album, links) =
-                api(serverUrl, session).use { it.album(albumId) to it.shareLinks(albumId) }
-            _screen.value = Screen.Album(album, links = links)
+        val known = held.opened[albumId]
+        if (known != null) {
+            push(Screen.Album(known.first, links = known.second))
             watch(albumId)
-        } catch (e: ApiException) {
-            _screen.update<Screen.Albums> { it.copy(busy = false, error = e.message) }
-        } catch (e: java.io.IOException) {
-            _screen.update<Screen.Albums> {
-                it.copy(busy = false, error = "That server did not answer. You may be offline.", retryable = true)
-            }
+            refreshAlbum()
+            return
         }
+        val summary = held.albums?.firstOrNull { it.id == albumId }
+        if (summary != null) push(Screen.Album(placeholder(summary))) else push(Screen.Album(placeholder(albumId)))
+        watch(albumId)
+        refreshAlbum()
     }
 
-    /** Leaves a screen for the albums behind it, which are re-read because one may have changed. */
-    fun back() {
-        val me = account ?: return
-        watching?.cancel()
-        _upload.value = null
-        _screen.value = Screen.Albums(me)
-        refreshAlbums()
+    /** Re-entering an album from the screen above it. */
+    private fun resume(albumId: String) {
+        watch(albumId)
+        refreshAlbum()
     }
 
     // --- one album ----------------------------------------------------------------------------
@@ -643,6 +817,7 @@ class AppModel(
                 api.createShareLink(album.id, pin, state.expiresInDays)
                 val links = api.shareLinks(album.id)
                 val fresh = api.album(album.id)
+                hold(fresh, links)
                 _screen.update<Screen.Album> {
                     it.copy(album = fresh, links = links, pin = "", expiresInDays = null, busy = false)
                 }
@@ -660,6 +835,7 @@ class AppModel(
                 api.revokeShareLink(shareLinkId)
                 val links = api.shareLinks(album.id)
                 val fresh = api.album(album.id)
+                hold(fresh, links)
                 _screen.update<Screen.Album> { it.copy(album = fresh, links = links, busy = false) }
             }
         }
@@ -679,45 +855,40 @@ class AppModel(
         val state = _screen.value as? Screen.Album ?: return
         if (uris.isEmpty()) return
         scope.launch {
-            UploadWorker.enqueue(context, state.album.id, uris)
+            uploads.enqueue(state.album.id, uris)
             observeUploads(state.album.id)
         }
     }
 
     /**
-     * The worker owns the upload; this only reads what it reports. The album is re-read when a batch
-     * finishes, because the items it created are the server's news, not the worker's.
+     * The upload belongs to the worker; this only reads what it reports. The album is re-read when a
+     * batch finishes, because the items it created are the server's news, not the worker's.
      */
     private fun observeUploads(albumId: String) {
-        scope.launch {
-            WorkManager.getInstance(context)
-                .getWorkInfosByTagFlow(UploadWorker.tagFor(albumId))
-                .collect { infos ->
-                    val running = infos.firstOrNull { it.state == WorkInfo.State.RUNNING }
-                    if (running != null) {
-                        val data = running.progress
-                        _upload.value =
-                            UploadStatus(
-                                filename = data.getString(UploadWorker.PROGRESS_FILE).orEmpty(),
-                                doneBytes = data.getLong(UploadWorker.PROGRESS_DONE, 0),
-                                totalBytes = data.getLong(UploadWorker.PROGRESS_TOTAL, 0),
-                                index = data.getInt(UploadWorker.PROGRESS_INDEX, 0),
-                                count = data.getInt(UploadWorker.PROGRESS_COUNT, 0),
-                            )
-                        return@collect
-                    }
-                    val failed = infos.firstOrNull { it.state == WorkInfo.State.FAILED }
-                    if (failed != null) {
-                        _upload.value =
-                            UploadStatus("", 0, 0, 0, 0, failed.outputData.getString(UploadWorker.ERROR) ?: "The upload failed")
-                        return@collect
-                    }
-                    if (infos.all { it.state.isFinished }) {
-                        _upload.value = null
-                        refreshAlbum()
+        reporting?.cancel()
+        reporting =
+            scope.launch {
+                uploads.reports(albumId).collect { report ->
+                    when (report) {
+                        is UploadReport.Running ->
+                            _upload.value =
+                                UploadStatus(
+                                    filename = report.filename,
+                                    doneBytes = report.doneBytes,
+                                    totalBytes = report.totalBytes,
+                                    index = report.index,
+                                    count = report.count,
+                                )
+                        is UploadReport.Failed -> _upload.value = UploadStatus("", 0, 0, 0, 0, report.message)
+                        UploadReport.Finished -> {
+                            _upload.value = null
+                            held.forget(albumId)
+                            held.library = null
+                            refreshAlbum()
+                        }
                     }
                 }
-        }
+            }
     }
 
     /** The one control an offline screen needs. It re-runs whatever this screen reads. */
@@ -730,23 +901,55 @@ class AppModel(
         }
     }
 
+    /** Pull to refresh. The same read, asked for deliberately, and said so on the screen. */
+    fun refresh() {
+        when (_screen.value) {
+            is Screen.Albums -> {
+                _screen.update<Screen.Albums> { it.copy(refreshing = true) }
+                refreshAlbums()
+            }
+            is Screen.Library -> {
+                _screen.update<Screen.Library> { it.copy(refreshing = true) }
+                refreshLibrary()
+            }
+            else -> Unit
+        }
+    }
+
     fun refreshAlbum() {
         val state = _screen.value as? Screen.Album ?: return
         scope.launch { onAlbum { api, _ -> reload(api, state.album.id) { it } } }
     }
 
-    /** Polls while anything is still uploading or rendering, and stops when nothing is. */
+    /**
+     * Asks again while anything is still uploading or rendering, and stops when nothing is.
+     *
+     * It asks for the album alone: share links do not change while an item renders, and they are
+     * re-read after anything that changes them. It slows down after the first twenty seconds,
+     * because a clip still transcoding by then will not be done in the next two. It waits while the
+     * app is not in front of somebody, so a pocketed phone polls nothing.
+     */
     private fun watch(albumId: String) {
         watching?.cancel()
-        observeUploads(albumId)
         watching =
             scope.launch {
+                val startedAt = 0L
+                var elapsed = startedAt
                 while (true) {
-                    delay(POLL_MILLIS)
+                    val wait = pollDelay(elapsed)
+                    delay(wait)
+                    elapsed += wait
+                    resumed.first { it }
                     val state = _screen.value as? Screen.Album ?: return@launch
                     if (state.album.id != albumId) return@launch
                     if (!state.settling) continue
-                    runCatching { onAlbum { api, _ -> reload(api, albumId) { it } } }
+                    runCatching {
+                        withApi(onApiError = { _, _ -> }) { api ->
+                            val album = api.album(albumId)
+                            hold(album, (_screen.value as? Screen.Album)?.links.orEmpty())
+                            _screen.update<Screen.Album> { it.copy(album = album) }
+                        }
+                    }
                 }
             }
     }
@@ -758,9 +961,17 @@ class AppModel(
     ) {
         val album = api.album(albumId)
         val links = api.shareLinks(albumId)
+        hold(album, links)
         _screen.update<Screen.Album> {
             block(it.copy(album = album, links = links, busy = false, error = null, retryable = false))
         }
+    }
+
+    private fun hold(
+        album: AlbumView,
+        links: List<ShareLinkView>,
+    ) {
+        held.opened[album.id] = album to links
     }
 
     // --- plumbing -----------------------------------------------------------------------------
@@ -770,7 +981,9 @@ class AppModel(
         _screen.update<Screen.Albums> { it.copy(busy = true, error = null, retryable = false) }
         withApi(
             onApiError = { message, retryable ->
-                _screen.update<Screen.Albums> { it.copy(busy = false, error = message, retryable = retryable) }
+                _screen.update<Screen.Albums> {
+                    it.copy(busy = false, refreshing = false, error = message, retryable = retryable)
+                }
             },
         ) { api -> block(api, state.me) }
     }
@@ -810,7 +1023,7 @@ class AppModel(
     ) {
         _screen.update<Screen.SignIn> { it.copy(busy = true, error = null) }
         try {
-            api(serverUrl).use { block(it) }
+            api(serverUrl, null).use { block(it) }
         } catch (e: ApiException) {
             _screen.update<Screen.SignIn> { it.copy(busy = false, error = e.message) }
         } catch (e: java.io.IOException) {
@@ -818,20 +1031,66 @@ class AppModel(
         }
     }
 
-    private fun api(
-        serverUrl: String,
-        session: String? = null,
-    ) = MantelApi(serverUrl, session)
-
     private inline fun <reified T : Screen> MutableStateFlow<Screen>.update(block: (T) -> Screen) {
         val current = value
         if (current is T) value = block(current)
     }
 
     private companion object {
-        const val POLL_MILLIS = 2_000L
+        /** Three columns of sixty is well past one screenful, and it is one request. */
+        const val LIBRARY_PAGE = 60
     }
 }
+
+/**
+ * How long to wait before asking about an album again.
+ *
+ * Two seconds while a render might plausibly be about to finish, ten after that. Over two minutes
+ * that is twenty requests rather than sixty, and the difference is invisible on the screen.
+ */
+fun pollDelay(elapsedMillis: Long): Long = if (elapsedMillis < 20_000L) 2_000L else 10_000L
+
+/** How many times [pollDelay] asks the server inside a window. The schedule, counted. */
+fun pollRequestsIn(windowMillis: Long): Int {
+    var elapsed = 0L
+    var asked = 0
+    while (true) {
+        elapsed += pollDelay(elapsed)
+        if (elapsed > windowMillis) return asked
+        asked++
+    }
+}
+
+/**
+ * An album the app knows the shape of but has not read. The album list already carries its title and
+ * how much is in it, so the screen says those rather than nothing while the read is in flight.
+ */
+private fun placeholder(summary: AlbumSummary): AlbumView =
+    AlbumView(
+        id = summary.id,
+        title = summary.title,
+        description = summary.description,
+        status = summary.status,
+        itemCount = summary.itemCount,
+        totalBytes = summary.totalBytes,
+        coverItemId = summary.coverItemId,
+        createdAt = summary.createdAt,
+        updatedAt = summary.updatedAt,
+        items = emptyList(),
+    )
+
+/** An album reached without the list: created a moment ago, or opened from the library. */
+private fun placeholder(albumId: String): AlbumView =
+    AlbumView(
+        id = albumId,
+        title = "",
+        status = "draft",
+        itemCount = 0,
+        totalBytes = 0,
+        createdAt = "",
+        updatedAt = "",
+        items = emptyList(),
+    )
 
 private inline fun <T> MantelApi.use(block: (MantelApi) -> T): T =
     try {

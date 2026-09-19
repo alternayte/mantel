@@ -2,6 +2,7 @@ package com.mantel.app.api
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.engine.HttpClientEngine
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.delete
@@ -57,11 +58,13 @@ private val lenientJson = Json { ignoreUnknownKeys = true }
 class MantelApi(
     baseUrl: String,
     private val session: String? = null,
+    /** The transport. It is a parameter so a test can answer without a server; nothing else sets it. */
+    engine: HttpClientEngine = OkHttp.create(),
 ) {
     private val base = baseUrl.trimEnd('/')
 
     private val client =
-        HttpClient(OkHttp) {
+        HttpClient(engine) {
             install(ContentNegotiation) { json(lenientJson) }
             expectSuccess = false
         }
@@ -192,8 +195,16 @@ class MantelApi(
             setBody(CompleteUploadsRequest(itemIds))
         }.require()
 
-    suspend fun library(after: String? = null): LibraryPage =
-        client.get("$base/api/library${after?.let { "?after=$it" }.orEmpty()}") { authorize() }.require()
+    suspend fun library(
+        after: String? = null,
+        limit: Int? = null,
+    ): LibraryPage {
+        val query =
+            listOfNotNull(after?.let { "after=$it" }, limit?.let { "limit=$it" })
+                .joinToString("&")
+                .let { if (it.isEmpty()) "" else "?$it" }
+        return client.get("$base/api/library$query") { authorize() }.require()
+    }
 
     suspend fun deleteFromLibrary(itemId: String) {
         client.delete("$base/api/library/$itemId") { authorize() }.require<Unit>()
