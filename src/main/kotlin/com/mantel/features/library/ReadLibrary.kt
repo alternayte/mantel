@@ -23,6 +23,7 @@ import io.ktor.server.response.respond
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import org.jetbrains.exposed.sql.ResultRow
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
@@ -112,6 +113,22 @@ suspend fun deleteFromLibrary(
                 .singleOrNull()
         } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
 
+    removeItem(item, storage, OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC))
+    call.respond(HttpStatusCode.NoContent)
+}
+
+/**
+ * Takes one item out of the library: its bytes, its place in any album, and the quota it held.
+ *
+ * `deleteFromLibrary` is a person doing this deliberately; the abandoned-upload sweep does the same
+ * thing to a row whose bytes never arrived. Both have to clean the same things, so both call this.
+ */
+suspend fun removeItem(
+    item: ResultRow,
+    storage: ObjectStorage,
+    now: OffsetDateTime,
+) {
+    val itemId = item[MediaItems.id]
     val prefix = item[MediaItems.originalKey].substringBeforeLast('/') + "/"
     withContext(Dispatchers.IO) {
         // An unfinished multipart upload holds bytes that no listing shows and no row points at.
@@ -119,7 +136,6 @@ suspend fun deleteFromLibrary(
         storage.deletePrefix(prefix)
     }
 
-    val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     db {
         val affected =
             AlbumItems.selectAll().where { AlbumItems.mediaItemId eq itemId }.map { it[AlbumItems.albumId] }
@@ -143,10 +159,9 @@ suspend fun deleteFromLibrary(
             settleAlbum(albumId, now)
         }
 
-        val account = Accounts.selectAll().where { Accounts.id eq accountId }.single()
-        Accounts.update({ Accounts.id eq accountId }) {
+        val account = Accounts.selectAll().where { Accounts.id eq item[MediaItems.accountId] }.single()
+        Accounts.update({ Accounts.id eq item[MediaItems.accountId] }) {
             it[storageUsedBytes] = account.quota().release(item[MediaItems.byteSize]).used
         }
     }
-    call.respond(HttpStatusCode.NoContent)
 }

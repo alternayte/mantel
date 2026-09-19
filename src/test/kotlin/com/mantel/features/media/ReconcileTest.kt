@@ -2,6 +2,7 @@ package com.mantel.features.media
 
 import com.mantel.features.account.Me
 import com.mantel.features.album.AlbumSummary
+import com.mantel.features.library.LibraryPage
 import com.mantel.support.TEST_WORKER_TOKEN
 import com.mantel.support.albumWithReadyPhoto
 import com.mantel.support.browser
@@ -136,6 +137,44 @@ class ReconcileTest {
         }
 
     @Test
+    fun `an upload that was declared and never sent is swept, and its quota comes back`() =
+        withApp { harness ->
+            val creator = signedIn(harness)
+
+            // A phone that declared a batch and then stopped: the row exists, the bytes never came.
+            val intent =
+                creator.post("/api/library/upload-intent") {
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"files":[{"filename":"a.jpg","contentType":"image/jpeg","sizeBytes":900}]}""")
+                }
+            assertEquals(HttpStatusCode.OK, intent.status)
+            assertEquals(900, creator.get("/api/me").body<Me>().storageUsedBytes)
+
+            val worker = browser()
+
+            // A declaration made a moment ago is a promise, not litter.
+            val early =
+                worker.post("/api/worker/reconcile/abandoned") {
+                    header(HttpHeaders.Authorization, "Bearer $TEST_WORKER_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, early.status)
+            assertTrue(early.bodyAsText().contains("\"removed\":0"), early.bodyAsText())
+
+            // A day later, storage has aborted the upload and the row cannot be finished.
+            harness.clock.advance(java.time.Duration.ofDays(2))
+
+            val swept =
+                worker.post("/api/worker/reconcile/abandoned") {
+                    header(HttpHeaders.Authorization, "Bearer $TEST_WORKER_TOKEN")
+                }
+            assertEquals(HttpStatusCode.OK, swept.status)
+            assertTrue(swept.bodyAsText().contains("\"removed\":1"), swept.bodyAsText())
+
+            assertEquals(0, creator.get("/api/library").body<LibraryPage>().items.size)
+            assertEquals(0, creator.get("/api/me").body<Me>().storageUsedBytes)
+        }
+
+    @Test
     fun `reconciliation needs the worker token`() =
         withApp {
             val stranger = browser()
@@ -148,6 +187,10 @@ class ReconcileTest {
             assertEquals(
                 HttpStatusCode.Unauthorized,
                 stranger.post("/api/worker/reconcile/quota").status,
+            )
+            assertEquals(
+                HttpStatusCode.Unauthorized,
+                stranger.post("/api/worker/reconcile/abandoned").status,
             )
         }
 }

@@ -77,6 +77,11 @@ class UploadWorker(
             // The library holds the media; the album is the selection made from it.
             if (albumId != null && itemIds.isNotEmpty()) api.addToAlbum(albumId, itemIds)
             batches.forget(batchId)
+            // Only now is this batch backed up, so only now may the backup step past it. A batch
+            // that never gets here is offered again by the next sweep.
+            inputData.getLong(WATERMARK, 0).takeIf { it > 0 }?.let {
+                SyncSettings(context).recordWatermark(it)
+            }
             return Result.success()
         } catch (e: ApiException) {
             // The server refusing is not a network blip: retrying the same bytes gets the same
@@ -234,6 +239,9 @@ class UploadWorker(
     companion object {
         const val ALBUM_ID = "albumId"
         const val BATCH_ID = "batchId"
+
+        /** How far the backup sweep had read when it handed this batch over. Zero for a hand-picked batch. */
+        const val WATERMARK = "watermark"
         const val ERROR = "error"
         const val PROGRESS_DONE = "done"
         const val PROGRESS_TOTAL = "total"
@@ -255,6 +263,7 @@ class UploadWorker(
             context: Context,
             albumId: String?,
             uris: List<Uri>,
+            watermark: Long = 0,
         ): Int {
             // The picked files are described and written down here rather than passed to the
             // worker: WorkManager's input data is a few kilobytes, and forty URIs is already most
@@ -270,6 +279,7 @@ class UploadWorker(
                     .setInputData(
                         Data.Builder()
                             .apply { albumId?.let { putString(ALBUM_ID, it) } }
+                            .apply { if (watermark > 0) putLong(WATERMARK, watermark) }
                             .putString(BATCH_ID, batchId)
                             .build(),
                     )
