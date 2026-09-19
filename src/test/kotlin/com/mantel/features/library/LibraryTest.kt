@@ -132,6 +132,30 @@ class LibraryTest {
         }
 
     @Test
+    fun `one batch naming the same photograph twice creates one item and charges once`() =
+        withApp { harness ->
+            val browser = signedIn(harness)
+            val album = browser.createAlbum().body<AlbumSummary>()
+            val hash = "b".repeat(64)
+
+            // A backup that picked the same photograph up twice. Before this, the second copy hit
+            // the account's content-hash constraint and the whole batch failed with a 500.
+            val file = """{"filename":"a.jpg","contentType":"image/jpeg","sizeBytes":900,"contentHash":"$hash"}"""
+            val response = browser.uploadIntent(album.id, """{"files":[$file,$file]}""")
+            assertEquals(HttpStatusCode.OK, response.status)
+
+            val items = json.decodeFromString<UploadIntentResponse>(response.bodyAsText()).items
+            assertEquals(2, items.size)
+            assertEquals(items[0].itemId, items[1].itemId, "both namings are the same item")
+            assertNotNull(items[0].uploadUrl)
+            assertNull(items[1].uploadUrl, "the second naming has nothing to send")
+            assertTrue(items[1].alreadyHeld)
+
+            assertEquals(900, browser.usedBytes(), "the photograph is charged once")
+            assertEquals(1, browser.library().items.size)
+        }
+
+    @Test
     fun `a file nothing can render is kept, shown as a filename, and refused by an album`() =
         withApp { harness ->
             val browser = signedIn(harness)
