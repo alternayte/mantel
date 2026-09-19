@@ -104,6 +104,7 @@ class UploadIntentTest {
                     "POST /api/worker/items/{itemId}/failure",
                     "POST /api/worker/items/{itemId}/heartbeat",
                     "POST /api/worker/reconcile/classify",
+                    "POST /api/worker/reconcile/abandoned",
                     "POST /api/worker/reconcile/quota",
                     "POST /api/worker/bundles/claim",
                     "POST /api/worker/bundles/{bundleId}/built",

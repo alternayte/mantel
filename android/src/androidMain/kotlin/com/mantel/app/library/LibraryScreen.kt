@@ -36,6 +36,7 @@ import com.mantel.app.design.PullToRefresh
 import com.mantel.app.design.Samples
 import com.mantel.app.design.Title
 import com.mantel.app.design.Tokens
+import com.mantel.app.design.UploadProgress
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
 import com.mantel.app.design.pressable
@@ -57,6 +58,7 @@ fun LibraryScreen(
 ) {
     // The library is a peer, so back leaves the app; opened from an album, it returns to it.
     val canGoBack by model.canGoBack.collectAsState()
+    val backup by model.backupStatus.collectAsState()
     BackHandler(enabled = canGoBack) { model.back() }
 
     val grid = rememberLazyGridState()
@@ -95,6 +97,23 @@ fun LibraryScreen(
             if (state.totalItems == 1L) "1 item" else "${state.totalItems} items",
             style = captionStyle,
         )
+
+        // The phone's backup has no screen of its own, so it reports here, where its results land.
+        backup?.let { status ->
+            Card {
+                if (status.failed != null) {
+                    Body(status.failed, style = failStyle)
+                    Body(
+                        "Nothing was lost. What did not arrive is still on this phone and will be offered again.",
+                        style = captionStyle,
+                    )
+                    Button(text = "Try the backup again", onClick = model::retryBackup, quiet = true)
+                } else {
+                    Body("Backing up ${status.index + 1} of ${status.count}", style = captionStyle)
+                    UploadProgress(status.filename, status.doneBytes, status.totalBytes)
+                }
+            }
+        }
 
         if (state.error != null) {
             Card {

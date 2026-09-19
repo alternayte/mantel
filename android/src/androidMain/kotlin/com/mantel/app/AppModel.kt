@@ -183,6 +183,10 @@ class AppModel(
     private val _upload = MutableStateFlow<UploadStatus?>(null)
     val upload: StateFlow<UploadStatus?> = _upload
 
+    /** What the phone's backup is doing, or what went wrong with it. */
+    private val _backupStatus = MutableStateFlow<UploadStatus?>(null)
+    val backupStatus: StateFlow<UploadStatus?> = _backupStatus
+
     /** Whether a back gesture has somewhere to go. A peer is the bottom of the stack. */
     private val _canGoBack = MutableStateFlow(false)
     val canGoBack: StateFlow<Boolean> = _canGoBack
@@ -192,6 +196,13 @@ class AppModel(
 
     private var watching: Job? = null
     private var reporting: Job? = null
+
+    /**
+     * The backup, watched for the whole session rather than while a screen is open. Nothing else
+     * watches it: a batch the phone uploads on its own has no screen of its own, and before this it
+     * could fail with nobody ever told.
+     */
+    private var backupWatch: Job? = null
 
     /** The album poll runs while the app is in front of somebody, and not in a pocket. */
     private val resumed = MutableStateFlow(true)
@@ -274,6 +285,7 @@ class AppModel(
                     val me = api(serverUrl, session).use { it.me() }
                     settings.setMe(me)
                     account = me
+                    watchBackup()
                     root(Screen.Albums(me))
                     refreshAlbums()
                     return@launch
@@ -378,6 +390,7 @@ class AppModel(
                 val me = api(serverUrl, session).use { it.me() }
                 settings.setMe(me)
                 account = me
+                watchBackup()
                 root(Screen.Albums(me))
                 refreshAlbums()
             }
@@ -387,6 +400,8 @@ class AppModel(
     fun signOut() {
         scope.launch {
             account = null
+            backupWatch?.cancel()
+            _backupStatus.value = null
             held.albums = null
             held.library = null
             held.opened.clear()
@@ -889,6 +904,38 @@ class AppModel(
                     }
                 }
             }
+    }
+
+    private fun watchBackup() {
+        backupWatch?.cancel()
+        backupWatch =
+            scope.launch {
+                uploads.reports(null).collect { report ->
+                    when (report) {
+                        is UploadReport.Running ->
+                            _backupStatus.value =
+                                UploadStatus(
+                                    filename = report.filename,
+                                    doneBytes = report.doneBytes,
+                                    totalBytes = report.totalBytes,
+                                    index = report.index,
+                                    count = report.count,
+                                )
+                        is UploadReport.Failed -> _backupStatus.value = UploadStatus("", 0, 0, 0, 0, report.message)
+                        UploadReport.Finished -> {
+                            _backupStatus.value = null
+                            held.library = null
+                            if (_screen.value is Screen.Library) refreshLibrary()
+                        }
+                    }
+                }
+            }
+    }
+
+    /** Runs the backup again. What failed is still on the phone, and the sweep will offer it again. */
+    fun retryBackup() {
+        _backupStatus.value = null
+        backup.runNow()
     }
 
     /** The one control an offline screen needs. It re-runs whatever this screen reads. */

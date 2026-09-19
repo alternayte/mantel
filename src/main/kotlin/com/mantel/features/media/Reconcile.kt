@@ -1,21 +1,28 @@
 package com.mantel.features.media
 
 import com.mantel.features.account.Accounts
+import com.mantel.features.library.removeItem
 import com.mantel.features.share.AlbumBundles
 import com.mantel.features.share.ShareLinks
 import com.mantel.features.share.ogKeyFor
 import com.mantel.kernel.Bytes
+import com.mantel.kernel.Clock
 import com.mantel.kernel.Config
 import com.mantel.kernel.db
+import com.mantel.storage.ObjectStorage
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import kotlinx.serialization.Serializable
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
+import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.sum
 import org.jetbrains.exposed.sql.update
 import java.time.Duration
+import java.time.OffsetDateTime
+import java.time.ZoneOffset
 
 @Serializable
 data class ObservedObject(val key: String, val sizeBytes: Long, val ageSeconds: Long)
@@ -110,3 +117,40 @@ suspend fun repairQuota(
 
     call.respond(repair)
 }
+
+@Serializable
+data class AbandonedSweep(val removed: Int)
+
+/**
+ * Rows that were declared and never sent.
+ *
+ * `upload-intent` creates the row and reserves its quota before any byte moves, so a client that
+ * stops between declaring and sending leaves a row nothing will ever finish. It shows in the
+ * library as an item that is permanently waiting, and it holds space the account cannot use.
+ *
+ * Storage aborts an incomplete multipart upload after a day (SDD.md 4.6), so after that the bytes
+ * cannot arrive even if the client comes back. A day is therefore the age at which a declaration is
+ * no longer a promise, and the row goes the same way a deleted one does.
+ */
+suspend fun sweepAbandonedUploads(
+    call: ApplicationCall,
+    storage: ObjectStorage,
+    config: Config,
+    clock: Clock,
+) {
+    requireWorker(call, config)
+    val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
+    val declaredBefore = now.minus(ABANDONED_AFTER)
+
+    val abandoned =
+        db {
+            MediaItems.selectAll()
+                .where { (MediaItems.status eq ItemState.PENDING_UPLOAD) and (MediaItems.createdAt less declaredBefore) }
+                .toList()
+        }
+    abandoned.forEach { removeItem(it, storage, now) }
+    call.respond(AbandonedSweep(removed = abandoned.size))
+}
+
+/** A day: what storage waits before it aborts an incomplete upload of its own accord. */
+private val ABANDONED_AFTER: Duration = Duration.ofDays(1)

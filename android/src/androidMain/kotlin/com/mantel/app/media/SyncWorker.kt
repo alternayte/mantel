@@ -21,6 +21,10 @@ import java.util.concurrent.TimeUnit
  *
  * It does not upload. It finds what is new and hands it to UploadWorker, which is the one thing in
  * the app that moves bytes, so a backup and a batch picked by hand behave identically.
+ *
+ * It does not move the watermark either. The upload happens after this worker has returned, so a
+ * watermark written here would step over photographs whose bytes never left the phone, and a backup
+ * that quietly skips photographs is not a backup. UploadWorker writes it when the batch lands.
  */
 class SyncWorker(
     private val context: Context,
@@ -36,12 +40,13 @@ class SyncWorker(
 
         val found = DeviceMedia.since(context, state.folders, state.watermark)
         if (found.uris.isNotEmpty()) {
-            UploadWorker.enqueue(context, albumId = null, uris = found.uris)
+            UploadWorker.enqueue(context, albumId = null, uris = found.uris, watermark = found.watermark)
+        } else {
+            // Nothing found means nothing to wait for, and the watermark is where it already was.
+            sync.recordWatermark(found.watermark)
         }
 
-        // The watermark moves whether or not anything was found, so an idle phone does not rescan
-        // its whole library every time.
-        sync.recordRun(found.watermark, System.currentTimeMillis())
+        sync.recordRun(System.currentTimeMillis())
         return Result.success()
     }
 

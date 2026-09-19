@@ -97,6 +97,9 @@ private data class ClassifyResponse(val orphans: List<String>, val keptCount: In
 @Serializable
 private data class QuotaRepair(val accountsChecked: Int, val accountsCorrected: Int)
 
+@Serializable
+private data class AbandonedSweep(val removed: Int)
+
 private val log = LoggerFactory.getLogger("com.mantel.worker")
 
 /**
@@ -382,6 +385,15 @@ class Worker(
                     deleted += orphans.size
                 }
             } while (after != null)
+        }
+
+        // Declared and never sent. It runs before the quota repair, so the space those rows held
+        // is given back in the same sweep.
+        val swept =
+            http.post("${config.publicBaseUrl}/api/worker/reconcile/abandoned") { authenticate() }
+                .body<AbandonedSweep>()
+        if (swept.removed > 0) {
+            log.info("reconciliation: removed {} uploads that were declared and never sent", swept.removed)
         }
 
         val repair =

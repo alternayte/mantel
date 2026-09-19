@@ -41,6 +41,7 @@ import com.mantel.features.media.reportFailure
 import com.mantel.features.media.reportHeartbeat
 import com.mantel.features.media.retryItem
 import com.mantel.features.media.setCaption
+import com.mantel.features.media.sweepAbandonedUploads
 import com.mantel.features.share.claimBundles
 import com.mantel.features.share.createShareLink
 import com.mantel.features.share.heartbeatBundle
@@ -231,6 +232,9 @@ fun Application.module(services: Services) {
         post("/api/worker/items/{itemId}/heartbeat") { reportHeartbeat(call, services.config, services.clock) }
 
         post("/api/worker/reconcile/classify") { classifyObjects(call, services.config) }
+        post("/api/worker/reconcile/abandoned") {
+            sweepAbandonedUploads(call, services.storage, services.config, services.clock)
+        }
         post("/api/worker/reconcile/quota") { repairQuota(call, services.config) }
 
         post("/api/worker/bundles/claim") { claimBundles(call, services.config, services.clock) }

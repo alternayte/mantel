@@ -70,13 +70,21 @@ class SyncSettings(private val context: Context) {
         context.syncStore.edit { it[chargingKey] = value }
     }
 
-    suspend fun recordRun(
-        watermark: Long,
-        at: Long,
-    ) {
+    suspend fun recordRun(at: Long) {
+        context.syncStore.edit { it[lastRunKey] = at }
+    }
+
+    /**
+     * How far the backup has actually got.
+     *
+     * It only ever moves forward: two batches may land out of order, and the later one must not
+     * step the earlier one's photographs over. It is written when a batch lands, never when one is
+     * handed to the uploader, because a photograph whose bytes never left the phone is not backed
+     * up and must be offered again.
+     */
+    suspend fun recordWatermark(watermark: Long) {
         context.syncStore.edit {
-            it[watermarkKey] = watermark
-            it[lastRunKey] = at
+            it[watermarkKey] = maxOf(it[watermarkKey] ?: 0L, watermark)
         }
     }
 }
