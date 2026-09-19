@@ -25,6 +25,9 @@ interface Backup {
     /** The folders on this phone. Reading them needs the media permission. */
     suspend fun folders(): List<MediaFolder>
 
+    /** Forgets how far the backup has got, so the next sweep offers everything again. */
+    suspend fun forgetProgress()
+
     /** Re-reads the settings and tells the scheduler about them. */
     suspend fun reschedule()
 
@@ -45,6 +48,8 @@ class PhoneBackup(private val context: Context) : Backup {
     override suspend fun setWhileCharging(value: Boolean) = settings.setWhileCharging(value)
 
     override suspend fun folders(): List<MediaFolder> = DeviceMedia.folders(context)
+
+    override suspend fun forgetProgress() = settings.forgetProgress()
 
     override suspend fun reschedule() = SyncWorker.schedule(context, settings.state.first())
 

@@ -124,6 +124,21 @@ fun SyncScreen(
                 )
                 Button(text = "Back up now", onClick = model::syncNow, enabled = !state.busy, quiet = true)
             }
+
+            Card {
+                Body(
+                    "If photographs are missing from your library, offer every one in these folders " +
+                        "again rather than only the new ones. Your library already knows what it holds, " +
+                        "so nothing is sent or charged twice.",
+                    style = captionStyle,
+                )
+                Button(
+                    text = "Back up everything again",
+                    onClick = model::backUpEverythingAgain,
+                    enabled = !state.busy,
+                    quiet = true,
+                )
+            }
         }
 
         Body(

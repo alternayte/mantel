@@ -82,6 +82,16 @@ class SyncSettings(private val context: Context) {
      * handed to the uploader, because a photograph whose bytes never left the phone is not backed
      * up and must be offered again.
      */
+
+    /**
+     * Forgets how far the backup has got, so the next sweep offers every photograph in the chosen
+     * folders again. It is how somebody recovers from a backup that skipped photographs before the
+     * watermark was fixed: the server knows what it already holds by hash, so nothing is sent twice.
+     */
+    suspend fun forgetProgress() {
+        context.syncStore.edit { it[watermarkKey] = 0L }
+    }
+
     suspend fun recordWatermark(watermark: Long) {
         context.syncStore.edit {
             it[watermarkKey] = maxOf(it[watermarkKey] ?: 0L, watermark)
