@@ -41,6 +41,7 @@ import com.mantel.app.design.Tokens
 import com.mantel.app.design.UploadProgress
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
+import com.mantel.app.design.pressable
 import com.mantel.app.design.rememberGridReorder
 import com.mantel.app.design.reorderable
 import com.mantel.app.previewModel
@@ -79,7 +80,7 @@ fun AlbumScreen(
     ) {
         Spacer(Modifier.height(Tokens.Space.titleY))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Body("Albums", style = captionStyle, modifier = Modifier.clickable { model.back() })
+            Body("Back", style = captionStyle, modifier = Modifier.pressable { model.back() })
         }
         Title(state.album.title)
         Body(
@@ -136,7 +137,7 @@ fun AlbumScreen(
                                 }
                             }
                             .alpha(if (held) 0.9f else 1f)
-                            .clickable { model.select(item.id) },
+                            .pressable { model.select(item.id) },
                 )
             }
         }
@@ -158,7 +159,7 @@ fun AlbumScreen(
         }
         Button(
             text = "Add from library",
-            onClick = model::openLibrary,
+            onClick = model::addFromLibrary,
             enabled = !state.busy,
             quiet = true,
         )

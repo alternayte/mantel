@@ -185,9 +185,15 @@ suspend fun uploadIntentFor(
                     .distinct()
                     .mapNotNull { hash -> held(accountId, hash)?.let { hash to it } }
                     .toMap()
+            // A batch may name the same photograph twice — a backup that picked up a duplicate, or
+            // a picker used carelessly. It is one item and one reservation, exactly as if the
+            // account already held it. A file that declares no hash is always its own item.
+            val counted = mutableSetOf<String>()
             val batchSize =
-                declared.filterNot { (file, _) -> file.contentHash in alreadyHeld.keys }
-                    .fold(Bytes.NONE) { total, (_, size) -> total + size }
+                declared.filterNot { (file, _) ->
+                    val hash = file.contentHash ?: return@filterNot false
+                    hash in alreadyHeld.keys || !counted.add(hash)
+                }.fold(Bytes.NONE) { total, (_, size) -> total + size }
 
             if (!quota.fits(batchSize)) {
                 throw DomainException(
@@ -200,12 +206,21 @@ suspend fun uploadIntentFor(
                 )
             }
 
+            // What this batch has already reserved, so the second naming of one photograph reuses
+            // the row the first created rather than inserting its hash again.
+            val reservedByHash = mutableMapOf<String, Reserved>()
             val created =
                 declared.map { (file, size) ->
-                    val existing = alreadyHeld[file.contentHash]
+                    val hash = file.contentHash
+                    val existing = hash?.let { alreadyHeld[it] }
                     if (existing != null) {
                         albumId?.let { addToAlbum(it, existing[MediaItems.id], now) }
                         return@map Reserved(existing[MediaItems.id], existing[MediaItems.originalKey], file, held = true)
+                    }
+                    val earlier = hash?.let { reservedByHash[it] }
+                    if (earlier != null) {
+                        albumId?.let { addToAlbum(it, earlier.id, now) }
+                        return@map earlier.copy(file = file, held = true)
                     }
                     val itemId = ItemId(Ids.uuidV7(clock))
                     val classified = ACCEPTED_TYPES[file.contentType]
@@ -225,7 +240,9 @@ suspend fun uploadIntentFor(
                         it[createdAt] = now
                     }
                     albumId?.let { addToAlbum(it, itemId, now) }
-                    Reserved(itemId, key, file, held = false)
+                    Reserved(itemId, key, file, held = false).also { fresh ->
+                        if (hash != null) reservedByHash[hash] = fresh
+                    }
                 }
 
             Accounts.update({ Accounts.id eq accountId }) {

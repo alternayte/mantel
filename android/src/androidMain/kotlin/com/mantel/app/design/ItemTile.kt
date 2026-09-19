@@ -19,6 +19,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.crossfade
 import com.mantel.app.api.ItemStatus
 import com.mantel.app.api.ItemView
 import com.mantel.app.api.state
@@ -37,18 +40,34 @@ fun ItemTile(
     item: ItemView,
     modifier: Modifier = Modifier,
     isCover: Boolean = false,
+    isSelected: Boolean = false,
 ) {
+    // The border marks a change of state, so it interpolates rather than switching (DESIGN.md).
+    val edge =
+        stateColour(
+            when {
+                isSelected || isCover -> Tokens.Colour.ink
+                else -> Tokens.Colour.surfaceLift
+            },
+            "tile:${item.id}",
+        )
     Box(
         modifier
             .aspectRatio(1f)
             .background(Tokens.Colour.surfaceLift)
-            .then(if (isCover) Modifier.border(2.dp, Tokens.Colour.ink) else Modifier),
+            .border(2.dp, edge),
     ) {
         // A thumbnail exists from the moment an item is backed up, whether or not the rest does.
         when {
             item.thumbUrl != null ->
+                // The tile is already at its final size, so only the image resolves: it fades up
+                // from the tile's own ground and nothing moves (DESIGN.md).
                 AsyncImage(
-                    model = item.thumbUrl,
+                    model =
+                        ImageRequest.Builder(LocalPlatformContext.current)
+                            .data(item.thumbUrl)
+                            .crossfade(Tokens.Motion.medium)
+                            .build(),
                     contentDescription = item.caption ?: item.filename,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),

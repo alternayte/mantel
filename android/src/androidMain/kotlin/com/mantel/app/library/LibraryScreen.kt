@@ -2,8 +2,6 @@ package com.mantel.app.library
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -15,8 +13,14 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.mantel.app.AppModel
@@ -26,12 +30,18 @@ import com.mantel.app.design.Button
 import com.mantel.app.design.ButtonRow
 import com.mantel.app.design.Card
 import com.mantel.app.design.ItemTile
+import com.mantel.app.design.Peer
+import com.mantel.app.design.PeerSwitch
+import com.mantel.app.design.PullToRefresh
 import com.mantel.app.design.Samples
 import com.mantel.app.design.Title
 import com.mantel.app.design.Tokens
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
+import com.mantel.app.design.pressable
+import com.mantel.app.design.rememberPull
 import com.mantel.app.previewModel
+import kotlinx.coroutines.flow.first
 
 /**
  * Every photograph the account owns, newest first.
@@ -45,19 +55,42 @@ fun LibraryScreen(
     state: Screen.Library,
     model: AppModel,
 ) {
-    BackHandler(enabled = true) { model.back() }
+    // The library is a peer, so back leaves the app; opened from an album, it returns to it.
+    val canGoBack by model.canGoBack.collectAsState()
+    BackHandler(enabled = canGoBack) { model.back() }
+
+    val grid = rememberLazyGridState()
+    val pull = rememberPull(model::refresh)
+
+    // The next page is asked for before the grid runs out, not when it has. The effect re-arms on
+    // every page, and reads the count from the current state: a remembered lambda would hold the
+    // list it first saw and stop asking after page one.
+    val loaded = state.items.size
+    val cursor = state.cursor
+    LaunchedEffect(loaded, cursor) {
+        if (cursor == null) return@LaunchedEffect
+        snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .first { it >= loaded - LOOKAHEAD }
+        model.loadMoreLibrary()
+    }
 
     Column(
         Modifier
             .fillMaxSize()
             .background(Tokens.Colour.surface)
             .safeDrawingPadding()
+            .nestedScroll(pull)
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
     ) {
         Spacer(Modifier.height(Tokens.Space.titleY))
-        Body("Albums", style = captionStyle, modifier = Modifier.clickable { model.back() })
-        Title("Library")
+        if (state.pickingFor != null) {
+            Body("Back", style = captionStyle, modifier = Modifier.pressable { model.back() })
+            Title("Library")
+        } else {
+            PeerSwitch(onAlbums = model::openAlbums, onLibrary = {}, current = Peer.LIBRARY)
+        }
+        PullToRefresh(refreshing = state.refreshing, pull = pull.fraction)
         Body(
             if (state.totalItems == 1L) "1 item" else "${state.totalItems} items",
             style = captionStyle,
@@ -78,19 +111,17 @@ fun LibraryScreen(
         }
 
         LazyVerticalGrid(
+            state = grid,
             columns = GridCells.Fixed(3),
             modifier = Modifier.fillMaxWidth().weight(1f),
             horizontalArrangement = Arrangement.spacedBy(Tokens.Space.gutterTight),
             verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutterTight),
         ) {
             items(state.items, key = { it.id }) { item ->
-                val chosen = item.id in state.selected
                 ItemTile(
                     item = item,
-                    modifier =
-                        Modifier
-                            .then(if (chosen) Modifier.border(2.dp, Tokens.Colour.ink) else Modifier)
-                            .clickable { model.toggleSelection(item.id) },
+                    isSelected = item.id in state.selected,
+                    modifier = Modifier.pressable { model.toggleSelection(item.id) },
                 )
             }
         }
@@ -157,3 +188,6 @@ private fun SelectedPreview() =
 @Preview(name = "Library: empty", widthDp = 360, heightDp = 720)
 @Composable
 private fun EmptyLibraryPreview() = LibraryScreen(Screen.Library(), previewModel())
+
+/** How many tiles short of the end the next page is asked for: two rows of three. */
+private const val LOOKAHEAD = 6

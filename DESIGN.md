@@ -80,6 +80,47 @@ the source, and every one is styled from the tokens above rather than from a lib
 The creator surface is one shade lighter than the viewer: the viewer is a gallery at night, the
 creator is a desk with a lamp on it. Both read the same tokens.
 
+## The creator's motion
+
+The viewer earns its stillness: it is a page of photographs and nothing moves unless a person asks.
+The creator is a tool, and a tool that gives no answer to a touch reads as broken rather than calm.
+So the creator has motion, and these four uses are all of it.
+
+**One rule: motion marks a change of state, and never decorates a static one.** No entrance
+animation on a list, no staggered grid, no pulsing placeholder, no spinner where a real answer is
+about to arrive.
+
+| Use | What moves | Duration |
+|---|---|---|
+| A press | The target goes to `surface-lift`, released on lift | `motion.fast` |
+| A screen replaces another | The new screen fades up, the old fades out, no slide | `motion.medium` |
+| A thumbnail arrives | The image crossfades from the tile's `surface-lift` ground | `motion.medium` |
+| A tile changes state | The selection border and the state colour interpolate | `motion.fast` |
+
+**A press is the one that matters.** Before this, a tap on a button did nothing at all until the
+next screen appeared, so a slow network read as a dead application. Everything else here is smaller.
+
+**No slide.** A slide claims a spatial model — this screen is to the right of that one — and the
+creator's screens have no such arrangement. A crossfade claims only that one thing replaced another,
+which is what happened.
+
+**Nothing waits on the network to appear.** A screen draws the data it already holds and refreshes
+underneath it. An animation over an empty screen animates the emptiness.
+
+## Albums and the library are peers
+
+The creator has two places it lives — the albums and the library — and one place it visits, an
+album. The two peers replace each other; an album pushes over whichever peer you were on, and going
+back returns you there.
+
+The control is `ALBUMS · LIBRARY` in the title style at the top of both, the current one in `ink`
+and the other in `muted`. It is not a bar and it is not tabs. There are no icons anywhere in Mantel,
+and two glyphs invented for these two words would be the first — the same reason the identity is
+carried by the typeface and the spacing rather than by a licence.
+
+Backup is not a third place. It is a switch and two constraints, opened once, and it stays a text
+link at the foot of the albums screen.
+
 ## The one control the viewer has
 
 Run A froze a grid with no interface in it, and M8 added the download. It sits *after* the

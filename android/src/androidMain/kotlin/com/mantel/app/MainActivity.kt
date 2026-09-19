@@ -13,6 +13,11 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.browser.customtabs.CustomTabColorSchemeParams
 import androidx.browser.customtabs.CustomTabsIntent
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
@@ -22,6 +27,7 @@ import com.mantel.app.album.AlbumsScreen
 import com.mantel.app.auth.SignInScreen
 import com.mantel.app.design.Page
 import com.mantel.app.design.Title
+import com.mantel.app.design.Tokens
 import com.mantel.app.library.LibraryScreen
 import com.mantel.app.media.DeviceMedia
 import com.mantel.app.media.SyncScreen
@@ -86,18 +92,41 @@ class MainActivity : ComponentActivity() {
                 null -> Unit
             }
 
-            when (val current = screen) {
-                is Screen.Starting -> Page { Title("Mantel") }
-                is Screen.SignIn -> SignInScreen(current, model)
-                is Screen.Albums -> AlbumsScreen(current, model)
-                is Screen.Library -> LibraryScreen(current, model)
-                is Screen.Sync -> SyncScreen(current, model)
-                is Screen.Album -> AlbumScreen(current, upload, model)
+            // One screen replaces another, and says only that: a crossfade, no slide, because
+            // these screens have no arrangement in space to imply (DESIGN.md).
+            AnimatedContent(
+                targetState = screen,
+                transitionSpec = {
+                    val spec = tween<Float>(Tokens.Motion.medium, easing = Tokens.Motion.ease)
+                    fadeIn(spec) togetherWith fadeOut(spec)
+                },
+                contentKey = { it.key() },
+                label = "screen",
+            ) { current ->
+                when (current) {
+                    is Screen.Starting -> Page { Title("Mantel") }
+                    is Screen.SignIn -> SignInScreen(current, model)
+                    is Screen.Albums -> AlbumsScreen(current, model)
+                    is Screen.Library -> LibraryScreen(current, model)
+                    is Screen.Sync -> SyncScreen(current, model)
+                    is Screen.Album -> AlbumScreen(current, upload, model)
+                }
             }
         }
 
         model.start()
         handle(intent)
+    }
+
+    /** The album poll asks nothing while the app is not in front of somebody. */
+    override fun onResume() {
+        super.onResume()
+        model.resumed(true)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        model.resumed(false)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -161,3 +190,17 @@ class MainActivity : ComponentActivity() {
         const val MAX_PICK = 200
     }
 }
+
+/**
+ * What counts as the same screen for a transition. A screen that only changed its contents — a
+ * refresh landing, a selection — must not cross-fade with itself.
+ */
+private fun Screen.key(): String =
+    when (this) {
+        is Screen.Starting -> "starting"
+        is Screen.SignIn -> "sign-in"
+        is Screen.Albums -> "albums"
+        is Screen.Library -> "library"
+        is Screen.Sync -> "sync"
+        is Screen.Album -> "album:${album.id}"
+    }

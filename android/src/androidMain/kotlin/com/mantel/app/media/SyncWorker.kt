@@ -8,7 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
-import com.mantel.app.auth.Settings
+import com.mantel.app.auth.StoredSettings
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
@@ -32,7 +32,7 @@ class SyncWorker(
         if (!state.enabled) return Result.success()
 
         // A session is needed to upload anything. Signed out is not a failure worth retrying.
-        Settings(context).session.first() ?: return Result.success()
+        StoredSettings(context).session.first() ?: return Result.success()
 
         val found = DeviceMedia.since(context, state.folders, state.watermark)
         if (found.uris.isNotEmpty()) {

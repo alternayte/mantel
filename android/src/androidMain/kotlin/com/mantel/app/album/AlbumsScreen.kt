@@ -1,7 +1,6 @@
 package com.mantel.app.album
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -14,6 +13,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -24,12 +24,16 @@ import com.mantel.app.design.Button
 import com.mantel.app.design.Card
 import com.mantel.app.design.Field
 import com.mantel.app.design.Meter
+import com.mantel.app.design.Peer
+import com.mantel.app.design.PeerSwitch
+import com.mantel.app.design.PullToRefresh
 import com.mantel.app.design.Samples
-import com.mantel.app.design.Title
 import com.mantel.app.design.Tokens
 import com.mantel.app.design.bytes
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
+import com.mantel.app.design.pressable
+import com.mantel.app.design.rememberPull
 import com.mantel.app.previewModel
 
 /**
@@ -43,16 +47,20 @@ fun AlbumsScreen(
     state: Screen.Albums,
     model: AppModel,
 ) {
+    val pull = rememberPull(model::refresh)
+
     Column(
         Modifier
             .fillMaxSize()
             .background(Tokens.Colour.surface)
             .safeDrawingPadding()
+            .nestedScroll(pull)
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
     ) {
         Spacer(Modifier.height(Tokens.Space.titleY))
-        Title("Mantel")
+        PeerSwitch(onAlbums = {}, onLibrary = model::openLibrary, current = Peer.ALBUMS)
+        PullToRefresh(refreshing = state.refreshing, pull = pull.fraction)
         Spacer(Modifier.height(Tokens.Space.gutter))
 
         Card {
@@ -95,14 +103,13 @@ fun AlbumsScreen(
             verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
         ) {
             items(state.albums, key = { it.id }) { album ->
-                Card(Modifier.clickable { model.openAlbum(album.id) }) {
+                Card(Modifier.pressable { model.openAlbum(album.id) }) {
                     Body(album.title)
                     Body(summaryOf(album.itemCount, album.totalBytes, album.status), style = captionStyle)
                 }
             }
         }
 
-        Button(text = "Library", onClick = model::openLibrary, quiet = true)
         Button(text = "Backup", onClick = model::openSync, quiet = true)
         Button(text = "Sign out", onClick = model::signOut, quiet = true)
         Spacer(Modifier.height(Tokens.Space.gutter))

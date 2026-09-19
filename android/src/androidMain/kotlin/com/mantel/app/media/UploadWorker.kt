@@ -19,7 +19,7 @@ import com.mantel.app.R
 import com.mantel.app.api.ApiException
 import com.mantel.app.api.MantelApi
 import com.mantel.app.api.PresignedPart
-import com.mantel.app.auth.Settings
+import com.mantel.app.auth.StoredSettings
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.flow.first
@@ -41,7 +41,7 @@ class UploadWorker(
     parameters: WorkerParameters,
 ) : CoroutineWorker(context, parameters) {
     private val batches = UploadBatches(context)
-    private val settings = Settings(context)
+    private val settings = StoredSettings(context)
 
     override suspend fun getForegroundInfo(): ForegroundInfo = foregroundInfo("Uploading", 0, 0)
 

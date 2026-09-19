@@ -2,7 +2,6 @@ package com.mantel.app.media
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +30,7 @@ import com.mantel.app.design.Title
 import com.mantel.app.design.Tokens
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
+import com.mantel.app.design.pressable
 import com.mantel.app.previewModel
 import java.text.DateFormat
 import java.util.Date
@@ -59,7 +59,7 @@ fun SyncScreen(
         verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
     ) {
         Spacer(Modifier.height(Tokens.Space.titleY))
-        Body("Albums", style = captionStyle, modifier = Modifier.clickable { model.back() })
+        Body("Back", style = captionStyle, modifier = Modifier.pressable { model.back() })
         Title("Backup")
 
         Card {
@@ -143,7 +143,7 @@ private fun Choice(
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() },
+        Modifier.fillMaxWidth().pressable { onClick() },
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
