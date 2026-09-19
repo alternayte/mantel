@@ -17,9 +17,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.tooling.preview.Preview
@@ -42,6 +41,7 @@ import com.mantel.app.design.failStyle
 import com.mantel.app.design.pressable
 import com.mantel.app.design.rememberPull
 import com.mantel.app.previewModel
+import kotlinx.coroutines.flow.first
 
 /**
  * Every photograph the account owns, newest first.
@@ -62,15 +62,16 @@ fun LibraryScreen(
     val grid = rememberLazyGridState()
     val pull = rememberPull(model::refresh)
 
-    // The next page is asked for before the grid runs out, not when it has.
-    val nearTheEnd by remember {
-        derivedStateOf {
-            val last = grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            last >= state.items.size - LOOKAHEAD
-        }
-    }
-    LaunchedEffect(nearTheEnd, state.cursor) {
-        if (nearTheEnd && state.cursor != null) model.loadMoreLibrary()
+    // The next page is asked for before the grid runs out, not when it has. The effect re-arms on
+    // every page, and reads the count from the current state: a remembered lambda would hold the
+    // list it first saw and stop asking after page one.
+    val loaded = state.items.size
+    val cursor = state.cursor
+    LaunchedEffect(loaded, cursor) {
+        if (cursor == null) return@LaunchedEffect
+        snapshotFlow { grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 }
+            .first { it >= loaded - LOOKAHEAD }
+        model.loadMoreLibrary()
     }
 
     Column(
