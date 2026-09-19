@@ -554,6 +554,20 @@ class AppModel(
         backup.runNow()
     }
 
+    /**
+     * Offers every photograph in the chosen folders again, not only the new ones.
+     *
+     * A backup that failed before 0.5.1 stepped over the photographs it had not sent, and nothing
+     * in the app could reach back for them. This is that reach. The server recognises what it
+     * already holds by hash, so a second offer of the same photograph costs no bytes and no quota.
+     */
+    fun backUpEverythingAgain() {
+        scope.launch {
+            backup.forgetProgress()
+            backup.runNow()
+        }
+    }
+
     // --- library ------------------------------------------------------------------------------
 
     /** The library, as a peer. */

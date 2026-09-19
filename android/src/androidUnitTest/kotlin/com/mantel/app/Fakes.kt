@@ -78,6 +78,8 @@ class FakeBackup : Backup {
 
     override suspend fun folders(): List<MediaFolder> = emptyList()
 
+    override suspend fun forgetProgress() = Unit
+
     override suspend fun reschedule() = Unit
 
     override fun runNow() = Unit
