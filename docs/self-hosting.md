@@ -142,3 +142,16 @@ migration; there is no down migration.
 
 Around 250 MB of memory for the app and the same for a worker, plus the image, which is about
 840 MB because it carries ffmpeg and libvips. Storage and egress depend on your photographs.
+
+### Deploying on a tag
+
+The release workflow asks Coolify to deploy after it has published the image. It needs two
+repository secrets, and does nothing without them:
+
+- `COOLIFY_API_TOKEN` — an API token from Coolify, Keys & Tokens.
+- `COOLIFY_DEPLOY_WEBHOOKS` — one deploy webhook URL per line, one for each resource that runs this
+  image. Each resource has its own under Webhooks.
+
+Coolify pulls the tag its resource names, so the resource must point at a moving tag such as `0.5`
+for this to change anything. A resource pinned to `0.5.1` stays on `0.5.1` however many times it is
+told to deploy.

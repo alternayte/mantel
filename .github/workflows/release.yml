@@ -109,3 +109,35 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: mantel-android-${{ github.ref_name }}.apk
+
+  # A tag that published an image should reach the instance running it. Coolify pulls; this only
+  # tells it to. It waits for `image` so it never asks for a tag that does not exist yet.
+  deploy:
+    needs: image
+    runs-on: ubuntu-latest
+    # A job's `if` cannot read secrets, so the guard is an env value the steps test. An instance
+    # nobody configured is not a failed release.
+    env:
+      HOOKS: ${{ secrets.COOLIFY_DEPLOY_WEBHOOKS }}
+      TOKEN: ${{ secrets.COOLIFY_API_TOKEN }}
+    steps:
+      - if: env.HOOKS == '' || env.TOKEN == ''
+        run: echo "No Coolify webhook configured. Nothing was deployed." >> "$GITHUB_STEP_SUMMARY"
+
+      # One webhook per resource, newline separated, so the app and the worker both move and the
+      # list is a secret rather than a URL in the repository.
+      - name: Ask Coolify to deploy
+        if: env.HOOKS != '' && env.TOKEN != ''
+        run: |
+          set -euo pipefail
+          echo "$HOOKS" | while read -r hook; do
+            [ -n "$hook" ] || continue
+            code=$(curl -sS -o /tmp/body -w '%{http_code}' -X GET "$hook" -H "Authorization: Bearer $TOKEN")
+            echo "$hook -> $code"
+            cat /tmp/body
+            echo
+            case "$code" in
+              2*) ;;
+              *) echo "Coolify refused the deploy ($code)" >&2; exit 1 ;;
+            esac
+          done
