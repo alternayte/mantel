@@ -56,8 +56,8 @@ Flyway owns the schema in `src/main/resources/db/migration/`; Exposed tables onl
 - library: every media item an account owns, independent of any album. Avoid: gallery, vault. The phone's camera roll is a different thing.
 - album item: a media item's membership of an album, with its position and its caption in that album. Avoid: album media, album photo.
 - sync: the Android app's one-way, additive background upload of the phone's media to the library. Avoid: mirror, two-way sync.
-- backed up: a media item whose original and thumbnail exist and whose viewer derivatives do not. Avoid: saved.
+- backed up: a media item whose original, thumbnail and display WebP exist, and whose album derivatives do not. Avoid: saved.
 - shareable: a media item whose every derivative exists, so an album holding it can publish.
 - held: data AppModel keeps in memory across a screen change, drawn at once and then refreshed. Avoid: cached, cache.
-- peer: a destination that replaces another rather than pushing onto the stack; albums and the library. Avoid: tab, top-level destination.
-- type switch: the ALBUMS / LIBRARY control in the title style that moves between the two peers. Avoid: nav bar, bottom nav, tab bar.
+- trash: where a deleted media item waits 30 days and can be restored, before the sweep removes its bytes. Avoid: bin, recycle bin.
+- timeline: the Photos screen's one view of the camera roll and the library together, grouped by the day each photograph was taken. Avoid: feed.
