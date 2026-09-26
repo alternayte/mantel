@@ -21,6 +21,8 @@ data class SyncState(
     val whileCharging: Boolean = true,
     val watermark: Long = 0,
     val lastRunAt: Long = 0,
+    /** Files the backup found and left out, because the server does not take files that large. */
+    val tooLarge: Set<String> = emptySet(),
 )
 
 /**
@@ -37,6 +39,7 @@ class SyncSettings(private val context: Context) {
     private val chargingKey = booleanPreferencesKey("while_charging")
     private val watermarkKey = longPreferencesKey("watermark")
     private val lastRunKey = longPreferencesKey("last_run_at")
+    private val tooLargeKey = stringSetPreferencesKey("too_large")
 
     val state: Flow<SyncState> =
         context.syncStore.data.map {
@@ -47,6 +50,7 @@ class SyncSettings(private val context: Context) {
                 whileCharging = it[chargingKey] ?: true,
                 watermark = it[watermarkKey] ?: 0,
                 lastRunAt = it[lastRunKey] ?: 0,
+                tooLarge = it[tooLargeKey] ?: emptySet(),
             )
         }
 
@@ -68,6 +72,15 @@ class SyncSettings(private val context: Context) {
 
     suspend fun setWhileCharging(value: Boolean) {
         context.syncStore.edit { it[chargingKey] = value }
+    }
+
+    /**
+     * Files left out of the backup as too large for the server. They are kept by name so the
+     * backup screen can say what is not backed up; a backup that quietly misses a video is worse
+     * than one that says so.
+     */
+    suspend fun recordTooLarge(names: Collection<String>) {
+        context.syncStore.edit { it[tooLargeKey] = (it[tooLargeKey] ?: emptySet()) + names }
     }
 
     suspend fun recordRun(at: Long) {

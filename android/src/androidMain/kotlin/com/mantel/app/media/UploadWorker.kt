@@ -56,13 +56,15 @@ class UploadWorker(
         try {
             setForeground(foregroundInfo("Uploading", 0, 0))
             var batch = batches.load(batchId) ?: return Result.failure()
-            if (batch.items.any { it.itemId == null }) {
+            // A file left out as too large has no item id and never will; it is not waiting to be
+            // declared, and counting it would declare the batch again on every retry.
+            if (batch.items.any { it.itemId == null && !it.tooLarge }) {
                 batch = declare(api, batch)
                 batches.save(batchId, batch)
             }
 
             batch.items.forEachIndexed { index, item ->
-                if (item.uploaded) return@forEachIndexed
+                if (item.uploaded || item.tooLarge) return@forEachIndexed
                 report(batch, item.filename, index)
                 val uploaded = send(api, item)
                 batch = batch.copy(items = batch.items.map { if (it.uri == item.uri) uploaded else it })
@@ -77,12 +79,17 @@ class UploadWorker(
             // The library holds the media; the album is the selection made from it.
             if (albumId != null && itemIds.isNotEmpty()) api.addToAlbum(albumId, itemIds)
             batches.forget(batchId)
+            val tooLarge = batch.items.filter { it.tooLarge }.map { it.filename }
             // Only now is this batch backed up, so only now may the backup step past it. A batch
-            // that never gets here is offered again by the next sweep.
-            inputData.getLong(WATERMARK, 0).takeIf { it > 0 }?.let {
-                SyncSettings(context).recordWatermark(it)
+            // that never gets here is offered again by the next sweep. A file too large for the
+            // server is stepped past too, because offering it again changes nothing; it is written
+            // down instead, so the backup screen can say it is not backed up.
+            if (albumId == null) {
+                val sync = SyncSettings(context)
+                if (tooLarge.isNotEmpty()) sync.recordTooLarge(tooLarge)
+                inputData.getLong(WATERMARK, 0).takeIf { it > 0 }?.let { sync.recordWatermark(it) }
             }
-            return Result.success()
+            return Result.success(workDataOf(TOO_LARGE to tooLarge.joinToString("\n")))
         } catch (e: ApiException) {
             // The server refusing is not a network blip: retrying the same bytes gets the same
             // answer, so the batch stays on disk and the failure is reported as it is.
@@ -108,19 +115,28 @@ class UploadWorker(
         api: MantelApi,
         batch: UploadBatch,
     ): UploadBatch {
+        // One file the server will not take makes it refuse the whole batch, and a backup offers the
+        // same batch again until it lands. So a file over the ceiling is left out here and named,
+        // rather than sent to wedge everything behind it. A server that does not say its ceiling
+        // is sent everything, as before.
+        val ceiling = api.me().maxFileBytes
+        val marked = batch.items.map { it.copy(tooLarge = ceiling != null && it.sizeBytes > ceiling) }
+        val sendable = marked.filterNot { it.tooLarge }
+        if (sendable.isEmpty()) return batch.copy(items = marked)
+
         // Hashed first, so the API can say it already holds a file and no bytes move for it.
-        val declared = batch.items.map { it.declared(sha256Of(Uri.parse(it.uri))) }
-        val intent = api.uploadIntent(declared)
+        val intent = api.uploadIntent(sendable.map { it.declared(sha256Of(Uri.parse(it.uri))) })
+        val granted = sendable.map { it.uri }.zip(intent.items).toMap()
         return batch.copy(
             items =
-                batch.items.mapIndexed { index, item ->
-                    val granted = intent.items.getOrNull(index)
+                marked.map { item ->
+                    val grant = granted[item.uri] ?: return@map item
                     item.copy(
-                        itemId = granted?.itemId,
-                        uploadUrl = granted?.uploadUrl,
-                        uploadId = granted?.uploadId,
-                        alreadyHeld = granted?.alreadyHeld ?: false,
-                        uploaded = granted?.alreadyHeld ?: false,
+                        itemId = grant.itemId,
+                        uploadUrl = grant.uploadUrl,
+                        uploadId = grant.uploadId,
+                        alreadyHeld = grant.alreadyHeld,
+                        uploaded = grant.alreadyHeld,
                     )
                 },
         )
@@ -242,6 +258,9 @@ class UploadWorker(
 
         /** How far the backup sweep had read when it handed this batch over. Zero for a hand-picked batch. */
         const val WATERMARK = "watermark"
+
+        /** The files a finished batch left out as too large for the server, one per line. */
+        const val TOO_LARGE = "tooLarge"
         const val ERROR = "error"
         const val PROGRESS_DONE = "done"
         const val PROGRESS_TOTAL = "total"

@@ -39,6 +39,8 @@ data class Me(
     val displayName: String? = null,
     val storageQuotaBytes: Long,
     val storageUsedBytes: Long,
+    /** The largest single file the server accepts. Absent from a server older than 0.5.3. */
+    val maxFileBytes: Long? = null,
 )
 
 @Serializable

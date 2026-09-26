@@ -160,7 +160,7 @@ fun Application.module(services: Services) {
         get("/openapi.json") {
             call.respondText(ContentType.Application.Json, HttpStatusCode.OK) { openApiDocument(services.config) }
         }
-        get("/api/me") { getMe(call) }
+        get("/api/me") { getMe(call, services.config) }
 
         get("/api/library") { getLibrary(call, services.storage) }
         post("/api/library/upload-intent") {

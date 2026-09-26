@@ -1,6 +1,7 @@
 package com.mantel.features.account
 
 import com.mantel.features.agent.requireCaller
+import com.mantel.kernel.Config
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
 import com.mantel.kernel.db
@@ -15,9 +16,17 @@ data class Me(
     val displayName: String? = null,
     val storageQuotaBytes: Long,
     val storageUsedBytes: Long,
+    /**
+     * The largest single file this instance accepts. A client that knows it can leave an oversized
+     * file out of a batch rather than send it and have the whole batch refused for its sake.
+     */
+    val maxFileBytes: Long,
 )
 
-suspend fun getMe(call: ApplicationCall) {
+suspend fun getMe(
+    call: ApplicationCall,
+    config: Config,
+) {
     val accountId = requireCaller(call).accountId
     val me =
         db {
@@ -27,6 +36,7 @@ suspend fun getMe(call: ApplicationCall) {
                     displayName = it[Accounts.displayName],
                     storageQuotaBytes = it[Accounts.storageQuotaBytes].value,
                     storageUsedBytes = it[Accounts.storageUsedBytes].value,
+                    maxFileBytes = config.maxFileBytes.value,
                 )
             }
         } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such account")

@@ -38,13 +38,14 @@ class SyncWorker(
         // A session is needed to upload anything. Signed out is not a failure worth retrying.
         StoredSettings(context).session.first() ?: return Result.success()
 
-        val found = DeviceMedia.since(context, state.folders, state.watermark)
-        if (found.uris.isNotEmpty()) {
-            UploadWorker.enqueue(context, albumId = null, uris = found.uris, watermark = found.watermark)
-        } else {
-            // Nothing found means nothing to wait for, and the watermark is where it already was.
-            sync.recordWatermark(found.watermark)
-        }
+        // One batch per chunk, queued in arrival order. They run one after another, and a batch
+        // that fails stops the ones behind it, so the watermark is always the end of the last
+        // batch that landed and the next sweep starts again from there.
+        DeviceMedia.since(context, state.folders, state.watermark)
+            .let { chunksOf(it, CHUNK) }
+            .forEach { chunk ->
+                UploadWorker.enqueue(context, albumId = null, uris = chunk.items, watermark = chunk.watermark)
+            }
 
         sync.recordRun(System.currentTimeMillis())
         return Result.success()
@@ -52,6 +53,12 @@ class SyncWorker(
 
     companion object {
         private const val NAME = "sync"
+
+        /**
+         * A quarter of the two hundred the server takes. A batch is the unit that fails, so a
+         * smaller one costs less when it does, and progress lands in visible steps.
+         */
+        private const val CHUNK = 50
 
         /**
          * Every six hours, on the network and power the person chose. WorkManager will not run a
