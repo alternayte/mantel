@@ -1,7 +1,7 @@
 [versions]
 # The release. The server and the Android client both read this, so they cannot disagree, and the
 # release workflow refuses a tag that does not match it.
-mantel = "0.5.2"
+mantel = "0.5.3"
 kotlin = "2.1.20"
 ktor = "3.1.2"
 exposed = "0.61.0"
