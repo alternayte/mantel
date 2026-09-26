@@ -2,13 +2,13 @@ package com.mantel.storage
 
 import com.mantel.kernel.Bytes
 import com.mantel.kernel.StorageConfig
+import com.mantel.support.MINIO_IMAGE
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 import org.testcontainers.containers.MinIOContainer
 import org.testcontainers.junit.jupiter.Container
 import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.utility.DockerImageName
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider
 import software.amazon.awssdk.core.sync.RequestBody
@@ -36,11 +36,7 @@ class S3ObjectStorageTest {
         @Container
         @JvmStatic
         val minio =
-            MinIOContainer(
-                // The same image and registry docker-compose.yml uses.
-                DockerImageName.parse("quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z")
-                    .asCompatibleSubstituteFor("minio/minio"),
-            )
+            MinIOContainer(MINIO_IMAGE)
     }
 
     private fun config() =
