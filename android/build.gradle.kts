@@ -61,8 +61,13 @@ android {
         applicationId = "com.mantel.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.5.2"
+        // One number for the whole release, from the shared catalogue. The code Android compares
+        // on an update is derived from it, so it rises whenever the version does: 0.5.2 is 502.
+        versionName = libs.versions.mantel.get()
+        versionCode =
+            versionName!!.split('.').map(String::toInt).let { (major, minor, patch) ->
+                major * 10_000 + minor * 100 + patch
+            }
     }
 
     sourceSets["main"].manifest.srcFile("src/androidMain/AndroidManifest.xml")

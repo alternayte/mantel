@@ -63,7 +63,14 @@ services:
       retries: 30
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2024-01-16T16-07-38Z
+    # MinIO stopped publishing its own images in 2026; quay.io/minio and minio/minio both refuse an
+    # anonymous pull. Chainguard builds it from source and publishes `latest` for free, which is
+    # the only tag it offers without a subscription. src/test/.../support/Minio.kt names the same.
+    image: cgr.dev/chainguard/minio:latest
+    # Chainguard runs MinIO as nonroot, and Docker creates a named volume owned by root, so MinIO
+    # cannot write its own data directory. The quay image this replaced ran as root; this keeps
+    # that. It is a development store and nothing else.
+    user: "0:0"
     # The bucket is a directory under /data, so it is created without a second image and a mc client.
     entrypoint: sh -c "mkdir -p /data/mantel && exec minio server /data --console-address ':9001'"
     environment:
