@@ -34,6 +34,11 @@ data class BatchItem(
     val uploadId: String? = null,
     val alreadyHeld: Boolean = false,
     val uploaded: Boolean = false,
+    /**
+     * Larger than the server accepts. It is left out of the batch rather than sent, because one
+     * file the server refuses makes it refuse the whole batch.
+     */
+    val tooLarge: Boolean = false,
 )
 
 @Serializable
@@ -42,7 +47,7 @@ data class UploadBatch(
     val albumId: String? = null,
     val items: List<BatchItem>,
 ) {
-    val totalBytes: Long get() = items.sumOf { it.sizeBytes }
+    val totalBytes: Long get() = items.filterNot { it.tooLarge }.sumOf { it.sizeBytes }
     val doneBytes: Long get() = items.filter { it.uploaded }.sumOf { it.sizeBytes }
 }
 

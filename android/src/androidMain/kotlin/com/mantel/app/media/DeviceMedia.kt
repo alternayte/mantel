@@ -16,9 +16,6 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class MediaFolder(val id: String, val name: String, val count: Int)
 
-/** What a sync run found: the media to offer, and the watermark to remember when it finishes. */
-data class NewMedia(val uris: List<Uri>, val watermark: Long)
-
 /**
  * The device's media, as folders and as files.
  *
@@ -65,20 +62,20 @@ object DeviceMedia {
     }
 
     /**
-     * Media in the chosen folders that arrived after the watermark.
+     * Media in the chosen folders that arrived after the watermark, each with when it arrived.
      *
      * The watermark is `DATE_ADDED`, in seconds, and the query is inclusive of it: a second may hold
      * more than one photograph, and offering one twice costs nothing because the server already
-     * holds it by hash. Missing one costs a backup.
+     * holds it by hash. Missing one costs a backup. The order is left to `chunksOf`, which sorts
+     * photographs and videos together; each collection here answers in its own order.
      */
     fun since(
         context: Context,
         folders: Set<String>,
         watermark: Long,
-    ): NewMedia {
-        if (folders.isEmpty()) return NewMedia(emptyList(), watermark)
-        val uris = mutableListOf<Uri>()
-        var highest = watermark
+    ): List<Arrival<Uri>> {
+        if (folders.isEmpty()) return emptyList()
+        val found = mutableListOf<Arrival<Uri>>()
 
         COLLECTIONS.forEach { collection ->
             val selection = "$BUCKET_ID IN (${folders.joinToString(",") { "?" }}) AND $ADDED >= ?"
@@ -93,12 +90,12 @@ object DeviceMedia {
                 val idColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                 val addedColumn = cursor.getColumnIndexOrThrow(ADDED)
                 while (cursor.moveToNext()) {
-                    uris += android.content.ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
-                    highest = maxOf(highest, cursor.getLong(addedColumn))
+                    val uri = android.content.ContentUris.withAppendedId(collection, cursor.getLong(idColumn))
+                    found += Arrival(uri, cursor.getLong(addedColumn))
                 }
             }
         }
-        return NewMedia(uris, highest)
+        return found
     }
 
     /** What the app must hold to read the device's media at all. */

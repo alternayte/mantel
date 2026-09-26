@@ -155,7 +155,7 @@ fun openApiDocument(config: Config): String =
         "/api/me": {
           "get": {
             "summary": "The signed-in account",
-            "responses": { "200": { "description": "The account and its storage use" } }
+            "responses": { "200": { "description": "The account, its storage use, and the largest single file this instance accepts (maxFileBytes)" } }
           }
         },
         "/api/albums": {

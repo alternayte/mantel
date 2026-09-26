@@ -125,6 +125,27 @@ fun SyncScreen(
                 Button(text = "Back up now", onClick = model::syncNow, enabled = !state.busy, quiet = true)
             }
 
+            // A file the server will not take is left out rather than allowed to stop the backup.
+            // It is still not backed up, and that is said here, by name, rather than nowhere.
+            if (state.tooLarge.isNotEmpty()) {
+                Card {
+                    Body(
+                        if (state.tooLarge.size == 1) {
+                            "One file is larger than your server accepts, so it is not backed up."
+                        } else {
+                            "${state.tooLarge.size} files are larger than your server accepts, so they are not backed up."
+                        },
+                        style = failStyle,
+                    )
+                    val named = state.tooLarge.sorted()
+                    Body(
+                        named.take(TOO_LARGE_NAMED).joinToString("\n") +
+                            if (named.size > TOO_LARGE_NAMED) "\nand ${named.size - TOO_LARGE_NAMED} more" else "",
+                        style = captionStyle,
+                    )
+                }
+            }
+
             Card {
                 Body(
                     "If photographs are missing from your library, offer every one in these folders " +
@@ -195,3 +216,6 @@ private fun SyncOnPreview() =
         ),
         previewModel(),
     )
+
+/** How many too-large files the backup screen names before it counts the rest. */
+private const val TOO_LARGE_NAMED = 5

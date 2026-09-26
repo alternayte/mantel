@@ -19,8 +19,11 @@ sealed interface UploadReport {
 
     data class Failed(val message: String) : UploadReport
 
-    /** A batch finished. The album has items it did not have before, so it is worth re-reading. */
-    data object Finished : UploadReport
+    /**
+     * A batch finished. The album has items it did not have before, so it is worth re-reading.
+     * `tooLarge` names the files it left out because the server does not take files that large.
+     */
+    data class Finished(val tooLarge: List<String> = emptyList()) : UploadReport
 }
 
 /**
@@ -77,6 +80,11 @@ class WorkManagerUploads(private val context: Context) : Uploads {
         if (failed != null) {
             return UploadReport.Failed(failed.outputData.getString(UploadWorker.ERROR) ?: "The upload failed")
         }
-        return if (infos.all { it.state.isFinished }) UploadReport.Finished else null
+        if (!infos.all { it.state.isFinished }) return null
+        val tooLarge =
+            infos.filter { it.state == WorkInfo.State.SUCCEEDED }
+                .flatMap { it.outputData.getString(UploadWorker.TOO_LARGE).orEmpty().lines() }
+                .filter { it.isNotBlank() }
+        return UploadReport.Finished(tooLarge)
     }
 }

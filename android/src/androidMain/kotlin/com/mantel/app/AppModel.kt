@@ -83,6 +83,8 @@ sealed interface Screen {
         val unmeteredOnly: Boolean = true,
         val whileCharging: Boolean = true,
         val lastRunAt: Long = 0,
+        /** Files the backup left out as too large for the server. */
+        val tooLarge: Set<String> = emptySet(),
         val busy: Boolean = false,
         val error: String? = null,
     ) : Screen
@@ -469,6 +471,7 @@ class AppModel(
                             unmeteredOnly = state.unmeteredOnly,
                             whileCharging = state.whileCharging,
                             lastRunAt = state.lastRunAt,
+                            tooLarge = state.tooLarge,
                         )
                     }
                     if (state.enabled && known.isEmpty()) loadFolders()
@@ -909,8 +912,12 @@ class AppModel(
                                     count = report.count,
                                 )
                         is UploadReport.Failed -> _upload.value = UploadStatus("", 0, 0, 0, 0, report.message)
-                        UploadReport.Finished -> {
-                            _upload.value = null
+                        is UploadReport.Finished -> {
+                            // The rest landed; the ones too large to send are named, not dropped.
+                            _upload.value =
+                                report.tooLarge.takeIf { it.isNotEmpty() }?.let { names ->
+                                    UploadStatus("", 0, 0, 0, 0, tooLargeNote(names))
+                                }
                             held.forget(albumId)
                             held.library = null
                             refreshAlbum()
@@ -936,7 +943,7 @@ class AppModel(
                                     count = report.count,
                                 )
                         is UploadReport.Failed -> _backupStatus.value = UploadStatus("", 0, 0, 0, 0, report.message)
-                        UploadReport.Finished -> {
+                        is UploadReport.Finished -> {
                             _backupStatus.value = null
                             held.library = null
                             if (_screen.value is Screen.Library) refreshLibrary()
@@ -1172,3 +1179,11 @@ fun normalise(input: String): String? {
     if (!host.contains('.') && host.substringBefore(':') != "localhost") return null
     return withScheme
 }
+
+/** What an upload that left files out says about them. */
+private fun tooLargeNote(names: List<String>): String =
+    if (names.size == 1) {
+        "${names.single()} is larger than your server accepts and was not uploaded."
+    } else {
+        "${names.size} files are larger than your server accepts and were not uploaded: ${names.joinToString(", ")}."
+    }

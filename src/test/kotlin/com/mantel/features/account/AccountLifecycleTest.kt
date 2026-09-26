@@ -2,6 +2,7 @@ package com.mantel.features.account
 
 import com.mantel.support.browser
 import com.mantel.support.createAlbum
+import com.mantel.support.testConfig
 import com.mantel.support.uploadIntent
 import com.mantel.support.withApp
 import io.ktor.client.call.body
@@ -51,6 +52,9 @@ class AccountLifecycleTest {
             browser.signIn("nate@example.com") { harness.mailer.lastLink() }
             val me = browser.get("/api/me").body<Me>()
             assertEquals("nate@example.com", me.email)
+            // The phone reads this to leave an oversized file out of a backup batch rather than
+            // have the whole batch refused for it.
+            assertEquals(testConfig().maxFileBytes.value, me.maxFileBytes)
 
             // One album with one uploaded item, and an object belonging to somebody else.
             val album = browser.createAlbum().body<com.mantel.features.album.AlbumSummary>()

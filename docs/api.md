@@ -160,9 +160,14 @@ days after it is issued, like any other session.
   "email": "nate@example.com",
   "displayName": "Nate",
   "storageQuotaBytes": 10737418240,
-  "storageUsedBytes": 0
+  "storageUsedBytes": 0,
+  "maxFileBytes": 5368709120
 }
 ```
+
+`maxFileBytes` is the largest single file this instance accepts (`MANTEL_MAX_FILE_BYTES`). An upload
+intent that names a larger file is refused whole, so a client should leave such a file out of the
+batch rather than send it.
 
 ### `GET /api/account/export`
 
