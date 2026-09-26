@@ -16,6 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A tag names a release; the catalogue says what the build calls itself. 0.5.0 to 0.5.2 went
+      # out with the server still calling itself 0.4.0, because nothing compared the two.
+      - name: The tag matches the version the build carries
+        run: |
+          declared=$(sed -n 's/^mantel = "\(.*\)"$/\1/p' gradle/libs.versions.toml)
+          if [ "v$declared" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME, but gradle/libs.versions.toml says $declared. Bump it before tagging." >&2
+            exit 1
+          fi
+
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3

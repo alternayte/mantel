@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "com.mantel"
-version = "0.4.0"
+version = libs.versions.mantel.get()
 
 application {
     mainClass.set("com.mantel.ApplicationKt")
