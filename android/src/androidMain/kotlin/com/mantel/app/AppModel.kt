@@ -24,6 +24,9 @@ import com.mantel.app.media.Uploads
 import com.mantel.app.media.WorkManagerUploads
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -31,11 +34,17 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
+ * The three sections at the foot of the app (DESIGN.md). Each is the bottom of the stack: choosing
+ * one replaces whichever you were on, and a screen you visit from one pushes over it.
+ */
+enum class Section { PHOTOS, ALBUMS, SHARED }
+
+/**
  * What the app is showing, and how it moves between those states.
  *
- * The screens are the shape of the product: sign in, the two peers — the albums and the library —
- * and the screens you visit from them. There is no navigation library here; the stack is a list in
- * the model, because six screens and one back gesture do not need routes (DESIGN.md).
+ * The screens are the shape of the product: sign in, the three sections — Photos, Albums and
+ * Shared — and the screens you visit from them. There is no navigation library here; the stack is
+ * a list in the model, because a handful of screens and one back gesture do not need routes.
  */
 sealed interface Screen {
     data object Starting : Screen
@@ -50,8 +59,9 @@ sealed interface Screen {
     ) : Screen
 
     data class Albums(
-        val me: Me,
         val albums: List<AlbumSummary> = emptyList(),
+        /** Whether the field for a new album's title is open. */
+        val creating: Boolean = false,
         val newTitle: String = "",
         val busy: Boolean = false,
         val refreshing: Boolean = false,
@@ -72,6 +82,34 @@ sealed interface Screen {
         val loadingMore: Boolean = false,
         val busy: Boolean = false,
         val refreshing: Boolean = false,
+        val error: String? = null,
+        val retryable: Boolean = false,
+    ) : Screen
+
+    /** Every live share link across every album: what each opens, and when it stops. */
+    data class Shared(
+        val links: List<SharedLink> = emptyList(),
+        /** The link whose revoke is waiting for a yes. Revoking cannot be undone. */
+        val revoking: String? = null,
+        val busy: Boolean = false,
+        val refreshing: Boolean = false,
+        val error: String? = null,
+        val retryable: Boolean = false,
+    ) : Screen
+
+    /** Behind the avatar: who is signed in, the space they use, backup, the trash, and leaving. */
+    data class Account(val me: Me) : Screen
+
+    /** Deleted media, kept for 30 days and restorable until the sweep removes it. */
+    data class Trash(
+        val items: List<ItemView> = emptyList(),
+        val totalItems: Long = 0,
+        val selected: Set<String> = emptySet(),
+        /** Removing for good cannot be undone, so it waits for a second press. */
+        val confirmingRemove: Boolean = false,
+        val cursor: String? = null,
+        val loadingMore: Boolean = false,
+        val busy: Boolean = false,
         val error: String? = null,
         val retryable: Boolean = false,
     ) : Screen
@@ -114,6 +152,23 @@ sealed interface Screen {
 
 private val MOVING = setOf(ItemStatus.PENDING_UPLOAD, ItemStatus.UPLOADED, ItemStatus.PROCESSING)
 
+/** A live link with the album it opens, because a link on its own says nothing about what it shows. */
+data class SharedLink(
+    val link: ShareLinkView,
+    val albumId: String,
+    val albumTitle: String,
+)
+
+/** The section a screen belongs to, when it is one of the three. A visited screen has none. */
+val Screen.section: Section?
+    get() =
+        when (this) {
+            is Screen.Library -> if (pickingFor == null) Section.PHOTOS else null
+            is Screen.Albums -> Section.ALBUMS
+            is Screen.Shared -> Section.SHARED
+            else -> null
+        }
+
 /** A batch on its way to storage, as the worker last reported it. */
 data class UploadStatus(
     val filename: String,
@@ -148,6 +203,7 @@ sealed interface Effect {
 private class Held {
     var albums: List<AlbumSummary>? = null
     var library: LibraryHeld? = null
+    var shared: List<SharedLink>? = null
     val opened = mutableMapOf<String, Pair<AlbumView, List<ShareLinkView>>>()
 
     fun forget(albumId: String) {
@@ -189,7 +245,7 @@ class AppModel(
     private val _backupStatus = MutableStateFlow<UploadStatus?>(null)
     val backupStatus: StateFlow<UploadStatus?> = _backupStatus
 
-    /** Whether a back gesture has somewhere to go. A peer is the bottom of the stack. */
+    /** Whether a back gesture has somewhere to go. A section is the bottom of the stack. */
     private val _canGoBack = MutableStateFlow(false)
     val canGoBack: StateFlow<Boolean> = _canGoBack
 
@@ -228,8 +284,8 @@ class AppModel(
         show(screen)
     }
 
-    /** A peer replaces the other peer and is the bottom of the stack (DESIGN.md). */
-    private fun peer(screen: Screen) {
+    /** A section replaces whichever section you were on, and is the bottom of the stack. */
+    private fun section(screen: Screen) {
         stack.clear()
         show(screen)
     }
@@ -255,16 +311,47 @@ class AppModel(
         when (beneath) {
             is Screen.Albums -> refreshAlbums()
             is Screen.Library -> refreshLibrary()
+            is Screen.Shared -> refreshShared()
+            is Screen.Trash -> refreshTrash()
             is Screen.Album -> resume(beneath.album.id)
             else -> Unit
         }
     }
 
-    /** The albums, as a peer. */
+    /** The navigation bar. */
+    fun openSection(section: Section) {
+        when (section) {
+            Section.PHOTOS -> openLibrary()
+            Section.ALBUMS -> openAlbums()
+            Section.SHARED -> openShared()
+        }
+    }
+
     fun openAlbums() {
-        val me = account ?: return
-        peer(Screen.Albums(me, albums = held.albums.orEmpty()))
+        section(Screen.Albums(albums = held.albums.orEmpty()))
         refreshAlbums()
+    }
+
+    /** Photos is where the app opens, and where it returns to after signing in. */
+    private fun home() {
+        root(libraryScreen(pickingFor = null))
+        refreshLibrary()
+    }
+
+    // --- account ------------------------------------------------------------------------------
+
+    /** The avatar. Drawn from the account already held, then re-read for the storage figure. */
+    fun openAccount() {
+        val me = account ?: return
+        push(Screen.Account(me))
+        scope.launch {
+            withApi(onApiError = { _, _ -> }) { api ->
+                val fresh = api.me()
+                account = fresh
+                settings.setMe(fresh)
+                _screen.update<Screen.Account> { it.copy(me = fresh) }
+            }
+        }
     }
 
     // --- sign in ------------------------------------------------------------------------------
@@ -288,8 +375,7 @@ class AppModel(
                     settings.setMe(me)
                     account = me
                     watchBackup()
-                    root(Screen.Albums(me))
-                    refreshAlbums()
+                    home()
                     return@launch
                 } catch (e: java.io.IOException) {
                     // Offline is not signed out. The session is still good, so the app opens on
@@ -298,8 +384,7 @@ class AppModel(
                     if (cached != null) {
                         account = cached
                         root(
-                            Screen.Albums(
-                                cached,
+                            libraryScreen(pickingFor = null).copy(
                                 error = "That server did not answer. You may be offline.",
                                 retryable = true,
                             ),
@@ -393,8 +478,7 @@ class AppModel(
                 settings.setMe(me)
                 account = me
                 watchBackup()
-                root(Screen.Albums(me))
-                refreshAlbums()
+                home()
             }
         }
     }
@@ -406,6 +490,7 @@ class AppModel(
             _backupStatus.value = null
             held.albums = null
             held.library = null
+            held.shared = null
             held.opened.clear()
             val serverUrl = settings.serverUrl.first() ?: return@launch
             val session = settings.session.first()
@@ -426,13 +511,22 @@ class AppModel(
 
     // --- albums -------------------------------------------------------------------------------
 
+    /** The plus in the title. The field opens at the top of the list; it is not a screen. */
+    fun startNewAlbum() {
+        _screen.update<Screen.Albums> { it.copy(creating = true, error = null) }
+    }
+
+    fun cancelNewAlbum() {
+        _screen.update<Screen.Albums> { it.copy(creating = false, newTitle = "") }
+    }
+
     fun setNewAlbumTitle(title: String) {
         _screen.update<Screen.Albums> { it.copy(newTitle = title, error = null) }
     }
 
     fun refreshAlbums() {
         scope.launch {
-            onAlbums { api, _ ->
+            onAlbums { api ->
                 val albums = api.albums()
                 held.albums = albums
                 _screen.update<Screen.Albums> { it.copy(albums = albums, busy = false, refreshing = false) }
@@ -445,10 +539,10 @@ class AppModel(
         val title = state.newTitle.trim()
         if (title.isEmpty()) return
         scope.launch {
-            onAlbums { api, _ ->
+            onAlbums { api ->
                 val created = api.createAlbum(title)
                 held.albums = null
-                _screen.update<Screen.Albums> { it.copy(newTitle = "", busy = false) }
+                _screen.update<Screen.Albums> { it.copy(newTitle = "", creating = false, busy = false) }
                 open(created.id)
             }
         }
@@ -573,9 +667,9 @@ class AppModel(
 
     // --- library ------------------------------------------------------------------------------
 
-    /** The library, as a peer. */
+    /** Photos: the library, as a section. */
     fun openLibrary() {
-        peer(libraryScreen(pickingFor = null))
+        section(libraryScreen(pickingFor = null))
         refreshLibrary()
     }
 
@@ -687,13 +781,16 @@ class AppModel(
         }
     }
 
-    /** The only deletion that removes bytes. An album only ever held a reference to these. */
+    /**
+     * To the trash, where the server keeps them for 30 days. They leave every album at once and come
+     * back to each on a restore; nothing on the phone is touched.
+     */
     fun deleteSelection() {
         val state = _screen.value as? Screen.Library ?: return
         scope.launch {
             onLibrary { api ->
-                state.selected.forEach { api.deleteFromLibrary(it) }
-                held.opened.clear()
+                state.selected.forEach { api.moveToTrash(it) }
+                forgetMedia()
                 _screen.update<Screen.Library> { it.copy(selected = emptySet(), busy = false) }
                 refreshLibrary()
             }
@@ -877,6 +974,173 @@ class AppModel(
         _effects.value = Effect.ShareText(url)
     }
 
+    // --- shared -------------------------------------------------------------------------------
+
+    fun openShared() {
+        section(Screen.Shared(links = held.shared.orEmpty()))
+        refreshShared()
+    }
+
+    /**
+     * Every live link, read album by album. The API lists links per album, and every album is asked
+     * at once, so the screen costs one round trip more than the album list and needs nothing from the
+     * server that another client does not already have.
+     */
+    private fun refreshShared() {
+        scope.launch {
+            onShared { api ->
+                val albums = api.albums()
+                held.albums = albums
+                val links =
+                    coroutineScope {
+                        albums.map { album -> async { album to api.shareLinks(album.id) } }.awaitAll()
+                    }.flatMap { (album, links) ->
+                        links.filter { it.live }.map { SharedLink(it, album.id, album.title) }
+                    }.sortedByDescending { it.link.createdAt }
+                held.shared = links
+                _screen.update<Screen.Shared> { it.copy(links = links, busy = false, refreshing = false) }
+            }
+        }
+    }
+
+    /** Revoking is immediate and total (SDD.md 4.3), so the first press only asks. */
+    fun askRevoke(shareLinkId: String) {
+        _screen.update<Screen.Shared> { it.copy(revoking = shareLinkId, error = null) }
+    }
+
+    fun cancelRevoke() {
+        _screen.update<Screen.Shared> { it.copy(revoking = null) }
+    }
+
+    fun confirmRevoke() {
+        val id = (_screen.value as? Screen.Shared)?.revoking ?: return
+        scope.launch {
+            onShared { api ->
+                api.revokeShareLink(id)
+                held.opened.clear()
+                val links = held.shared.orEmpty().filterNot { it.link.id == id }
+                held.shared = links
+                _screen.update<Screen.Shared> { it.copy(links = links, revoking = null, busy = false) }
+            }
+        }
+    }
+
+    private suspend fun onShared(block: suspend (MantelApi) -> Unit) {
+        _screen.update<Screen.Shared> { it.copy(busy = true, error = null, retryable = false) }
+        withApi(
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Shared> {
+                    it.copy(busy = false, refreshing = false, error = message, retryable = retryable)
+                }
+            },
+        ) { api -> block(api) }
+    }
+
+    // --- trash --------------------------------------------------------------------------------
+
+    fun openTrash() {
+        push(Screen.Trash())
+        refreshTrash()
+    }
+
+    private fun refreshTrash() {
+        scope.launch { onTrash { api -> reloadTrash(api) } }
+    }
+
+    private suspend fun reloadTrash(api: MantelApi) {
+        val page = api.trash(limit = LIBRARY_PAGE)
+        val ids = page.items.map { it.id }.toSet()
+        _screen.update<Screen.Trash> {
+            it.copy(
+                items = page.items,
+                totalItems = page.totalItems,
+                cursor = page.next,
+                selected = it.selected intersect ids,
+                confirmingRemove = false,
+                busy = false,
+            )
+        }
+    }
+
+    fun loadMoreTrash() {
+        val state = _screen.value as? Screen.Trash ?: return
+        val cursor = state.cursor ?: return
+        if (state.loadingMore) return
+        _screen.update<Screen.Trash> { it.copy(loadingMore = true) }
+        scope.launch {
+            withApi(
+                onApiError = { message, retryable ->
+                    _screen.update<Screen.Trash> { it.copy(loadingMore = false, error = message, retryable = retryable) }
+                },
+            ) { api ->
+                val page = api.trash(after = cursor, limit = LIBRARY_PAGE)
+                val current = _screen.value as? Screen.Trash ?: return@withApi
+                if (current.cursor != cursor) return@withApi
+                _screen.update<Screen.Trash> {
+                    it.copy(items = current.items + page.items, cursor = page.next, loadingMore = false)
+                }
+            }
+        }
+    }
+
+    fun toggleTrashSelection(itemId: String) {
+        _screen.update<Screen.Trash> { state ->
+            val next = state.selected.toMutableSet()
+            if (!next.add(itemId)) next.remove(itemId)
+            state.copy(selected = next, confirmingRemove = false, error = null)
+        }
+    }
+
+    /** Back into the library, and into every album each one was in. */
+    fun restoreSelection() {
+        val state = _screen.value as? Screen.Trash ?: return
+        scope.launch {
+            onTrash { api ->
+                state.selected.forEach { api.restore(it) }
+                forgetMedia()
+                _screen.update<Screen.Trash> { it.copy(selected = emptySet()) }
+                reloadTrash(api)
+            }
+        }
+    }
+
+    fun askRemoveForGood() {
+        _screen.update<Screen.Trash> { it.copy(confirmingRemove = true) }
+    }
+
+    fun cancelRemove() {
+        _screen.update<Screen.Trash> { it.copy(confirmingRemove = false) }
+    }
+
+    /** Gone now rather than in 30 days: the bytes, and the space they held. The phone keeps its copy. */
+    fun removeSelectionForGood() {
+        val state = _screen.value as? Screen.Trash ?: return
+        if (!state.confirmingRemove) return
+        scope.launch {
+            onTrash { api ->
+                state.selected.forEach { api.removeFromTrash(it) }
+                _screen.update<Screen.Trash> { it.copy(selected = emptySet()) }
+                reloadTrash(api)
+            }
+        }
+    }
+
+    private suspend fun onTrash(block: suspend (MantelApi) -> Unit) {
+        _screen.update<Screen.Trash> { it.copy(busy = true, error = null, retryable = false) }
+        withApi(
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Trash> { it.copy(busy = false, error = message, retryable = retryable) }
+            },
+        ) { api -> block(api) }
+    }
+
+    /** A change to what the library holds changes the library, its albums and their counts. */
+    private fun forgetMedia() {
+        held.library = null
+        held.albums = null
+        held.opened.clear()
+    }
+
     // --- upload -------------------------------------------------------------------------------
 
     fun pickMedia() {
@@ -965,6 +1229,8 @@ class AppModel(
             is Screen.Albums -> refreshAlbums()
             is Screen.Album -> refreshAlbum()
             is Screen.Library -> refreshLibrary()
+            is Screen.Shared -> refreshShared()
+            is Screen.Trash -> refreshTrash()
             else -> Unit
         }
     }
@@ -979,6 +1245,10 @@ class AppModel(
             is Screen.Library -> {
                 _screen.update<Screen.Library> { it.copy(refreshing = true) }
                 refreshLibrary()
+            }
+            is Screen.Shared -> {
+                _screen.update<Screen.Shared> { it.copy(refreshing = true) }
+                refreshShared()
             }
             else -> Unit
         }
@@ -1044,8 +1314,8 @@ class AppModel(
 
     // --- plumbing -----------------------------------------------------------------------------
 
-    private suspend fun onAlbums(block: suspend (MantelApi, Me) -> Unit) {
-        val state = _screen.value as? Screen.Albums ?: return
+    private suspend fun onAlbums(block: suspend (MantelApi) -> Unit) {
+        if (_screen.value !is Screen.Albums) return
         _screen.update<Screen.Albums> { it.copy(busy = true, error = null, retryable = false) }
         withApi(
             onApiError = { message, retryable ->
@@ -1053,7 +1323,7 @@ class AppModel(
                     it.copy(busy = false, refreshing = false, error = message, retryable = retryable)
                 }
             },
-        ) { api -> block(api, state.me) }
+        ) { api -> block(api) }
     }
 
     private suspend fun onAlbum(block: suspend (MantelApi, AlbumView) -> Unit) {

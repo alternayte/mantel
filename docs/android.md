@@ -20,8 +20,14 @@ the only exception.
 
 - **Sign in** with a magic link or with GitHub, in your own browser rather than in the app. The app
   never sees your password and no page inside it asks for one.
-- **The library**: every photograph and video the account holds, newest first. An album is a
+- **Photos, Albums and Shared**, in a bar at the foot of the screen. The app opens on Photos.
+- **Photos**: every photograph and video the account holds, newest taken first. An album is a
   selection from it, so adding one to an album costs no upload and no storage.
+- **Shared**: every live share link across all your albums, what each opens, when it expires, and
+  a revoke.
+- **Account**, behind the avatar on Photos: the space you use, backup, the trash and sign-out.
+- **Trash**: a deleted photograph waits there for 30 days and can be restored, or removed at once.
+  Deleting in the app never removes anything from the phone.
 - **Albums**: make one, see what is in it, set a cover, caption an item, reorder by holding a
   photograph and dragging it.
 - **Upload** through the system photo picker, so the app sees the files you chose and nothing else.

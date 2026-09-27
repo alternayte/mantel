@@ -28,6 +28,9 @@ object Tokens {
         /** The one-pixel line. Used almost never. */
         val line: Color = Color(0xFF2A2A2C)
 
+        /** The app's one accent, Halide's yellow. Structure and state only: the current section, a selection, what is running. Never for failure (run C). */
+        val accent: Color = Color(0xFFFFD60A)
+
         /** A failed item. Desaturated on purpose: a red alert next to a photograph is an alarm in a gallery. */
         val fail: Color = Color(0xFFB0705F)
     }
@@ -44,6 +47,12 @@ object Tokens {
 
         /** After the last photograph, so the album ends rather than stops. */
         val tail: Dp = 128.dp
+
+        /** The phone's page margin. The grid of photographs ignores it and runs to the edges. */
+        val page: Dp = 24.dp
+
+        /** Above and below a list row's text. Rows are flat on the page with a hairline between them, not cards (run C). */
+        val rowY: Dp = 14.dp
     }
 
     object Type {
@@ -52,6 +61,14 @@ object Tokens {
         val titleTrack: TextUnit = 0.2f.em
         val body: TextUnit = 14.4.sp
         val caption: TextUnit = 12.48.sp
+
+        /** The app's screen title: one per screen, large and bold, so a person knows where they are (run C). */
+        val screenTitle: TextUnit = 28.sp
+        val screenTitleWeight: Int = 700
+
+        /** A list row's first line in the app. */
+        val row: TextUnit = 17.sp
+        val rowWeight: Int = 500
     }
 
     object Radius {
@@ -60,6 +77,14 @@ object Tokens {
 
         /** The PIN card and placeholder tiles only. */
         val card: Dp = 10.dp
+    }
+
+    object Icon {
+        /** Lucide's stroke, in its 24-unit grid. Lucide draws at 2; 1.5 sits with the system type rather than over it (run C). */
+        val stroke: Float = 1.5f
+
+        /** An icon's box. The touch target round it is larger. */
+        val size: Dp = 24.dp
     }
 
     object Motion {
@@ -78,6 +103,9 @@ object Tokens {
 
         /** Below this a row becomes a column. */
         val phoneBreakpoint: Dp = 640.dp
+
+        /** The navigation bar at the foot of the app's three sections. */
+        val barHeight: Dp = 64.dp
     }
 }
 

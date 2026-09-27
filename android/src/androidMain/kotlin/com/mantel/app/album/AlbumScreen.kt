@@ -6,7 +6,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +35,7 @@ import com.mantel.app.design.Card
 import com.mantel.app.design.Field
 import com.mantel.app.design.ItemTile
 import com.mantel.app.design.Samples
-import com.mantel.app.design.Title
+import com.mantel.app.design.ScreenHeader
 import com.mantel.app.design.Tokens
 import com.mantel.app.design.UploadProgress
 import com.mantel.app.design.captionStyle
@@ -78,11 +77,7 @@ fun AlbumScreen(
             .padding(horizontal = 24.dp),
         verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
     ) {
-        Spacer(Modifier.height(Tokens.Space.titleY))
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Body("Back", style = captionStyle, modifier = Modifier.pressable { model.back() })
-        }
-        Title(state.album.title)
+        ScreenHeader(state.album.title, onBack = model::back, onMargin = false)
         Body(
             summaryOf(state.album.itemCount, state.album.totalBytes, state.album.status),
             style = captionStyle,

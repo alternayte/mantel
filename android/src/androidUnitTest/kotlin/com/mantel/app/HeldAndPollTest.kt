@@ -54,10 +54,8 @@ class HeldAndPollTest {
             val scope = scope()
             val model = model(server, scope)
 
+            // The app opens on Photos, the library.
             model.start()
-            model.waitFor("the albums") { it is Screen.Albums }
-
-            model.openLibrary()
             model.waitFor("the library, read") { it is Screen.Library && it.items.size == 1 }
 
             model.openAlbums()
@@ -85,6 +83,8 @@ class HeldAndPollTest {
             val model = model(server, scope)
 
             model.start()
+            model.waitFor("Photos") { it is Screen.Library }
+            model.openAlbums()
             model.waitFor("the albums, read") { it is Screen.Albums && it.albums.size == 1 }
 
             model.openAlbum("a1")

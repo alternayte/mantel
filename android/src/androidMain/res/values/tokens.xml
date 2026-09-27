@@ -5,5 +5,6 @@
     <color name="colour_ink">#ece9e4</color>
     <color name="colour_muted">#87837c</color>
     <color name="colour_line">#2a2a2c</color>
+    <color name="colour_accent">#ffd60a</color>
     <color name="colour_fail">#b0705f</color>
 </resources>

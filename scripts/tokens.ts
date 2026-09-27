@@ -61,6 +61,10 @@ function kotlin(value: string): { type: string; expression: string } | null {
   const em = /^(-?[\d.]+)em$/.exec(value)
   if (em) return { type: 'TextUnit', expression: `${Number(em[1])}f.em` }
 
+  // A bare number: a font weight, or a stroke in an icon's own units.
+  if (/^\d+$/.test(value)) return { type: 'Int', expression: value }
+  if (/^\d*\.\d+$/.test(value)) return { type: 'Float', expression: `${Number(value)}f` }
+
   const bezier = /^cubic-bezier\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*\)$/.exec(value)
   if (bezier) {
     const [a, b, c, d] = bezier.slice(1).map(Number)

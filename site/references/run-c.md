@@ -59,4 +59,10 @@ decisions: the run stopped before any of them was tried.
 
 Two critic proposals were refused because they break a fixed rule: a white page (the grid critic,
 twice), because Google Photos is the anti-reference and `DESIGN.md` sets near-black; and a red
-selection outline, because failure owns the only warm colour.
+selection outline, because red is how this product says something failed.
+
+## What the owner decided
+
+On 2026-09-27 the owner took the critics' direction for the phone app: one large title per screen,
+flat rows with hairlines, one accent (Halide's yellow), Lucide icons at a stroke of 1.5, and the
+near-black surface kept. `DESIGN.md` records it as "The phone app".

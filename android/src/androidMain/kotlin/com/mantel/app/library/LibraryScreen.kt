@@ -22,19 +22,18 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.mantel.app.AppModel
 import com.mantel.app.Screen
 import com.mantel.app.design.Body
 import com.mantel.app.design.Button
 import com.mantel.app.design.ButtonRow
 import com.mantel.app.design.Card
+import com.mantel.app.design.IconButton
+import com.mantel.app.design.Icons
 import com.mantel.app.design.ItemTile
-import com.mantel.app.design.Peer
-import com.mantel.app.design.PeerSwitch
 import com.mantel.app.design.PullToRefresh
 import com.mantel.app.design.Samples
-import com.mantel.app.design.Title
+import com.mantel.app.design.ScreenHeader
 import com.mantel.app.design.Tokens
 import com.mantel.app.design.UploadProgress
 import com.mantel.app.design.captionStyle
@@ -56,7 +55,7 @@ fun LibraryScreen(
     state: Screen.Library,
     model: AppModel,
 ) {
-    // The library is a peer, so back leaves the app; opened from an album, it returns to it.
+    // Photos is a section, so back leaves the app; opened from an album, it returns to it.
     val canGoBack by model.canGoBack.collectAsState()
     val backup by model.backupStatus.collectAsState()
     BackHandler(enabled = canGoBack) { model.back() }
@@ -84,19 +83,21 @@ fun LibraryScreen(
             .nestedScroll(pull),
         verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
     ) {
+        if (state.pickingFor != null) {
+            ScreenHeader("Add to album", onBack = model::back)
+        } else {
+            // Who is signed in, the space they use, backup, the trash and sign-out are behind the
+            // avatar: visited, not lived in.
+            ScreenHeader("Photos") {
+                IconButton(Icons.CircleUserRound, "Account", model::openAccount)
+            }
+        }
         // Everything but the grid sits on the page margin. The grid runs to the screen's edges:
         // photographs are the page, and a margin round them frames a grid of frames.
         Column(
-            Modifier.padding(horizontal = 24.dp),
+            Modifier.padding(horizontal = Tokens.Space.page),
             verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
         ) {
-            Spacer(Modifier.height(Tokens.Space.titleY))
-            if (state.pickingFor != null) {
-                Body("Back", style = captionStyle, modifier = Modifier.pressable { model.back() })
-                Title("Library")
-            } else {
-                PeerSwitch(onAlbums = model::openAlbums, onLibrary = {}, current = Peer.LIBRARY)
-            }
             PullToRefresh(refreshing = state.refreshing, pull = pull.fraction)
             Body(
                 if (state.totalItems == 1L) "1 item" else "${state.totalItems} items",
@@ -152,7 +153,7 @@ fun LibraryScreen(
         }
 
         if (state.selected.isNotEmpty()) {
-            Card(Modifier.padding(horizontal = 24.dp)) {
+            Card(Modifier.padding(horizontal = Tokens.Space.page)) {
                 Body("${state.selected.size} selected", style = captionStyle)
                 if (state.addingTo != null) {
                     Body("Which album?", style = captionStyle)

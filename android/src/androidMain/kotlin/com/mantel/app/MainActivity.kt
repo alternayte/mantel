@@ -18,19 +18,31 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.mantel.app.account.AccountScreen
 import com.mantel.app.album.AlbumScreen
 import com.mantel.app.album.AlbumsScreen
 import com.mantel.app.auth.SignInScreen
+import com.mantel.app.design.NavBar
 import com.mantel.app.design.Page
 import com.mantel.app.design.Title
 import com.mantel.app.design.Tokens
 import com.mantel.app.library.LibraryScreen
+import com.mantel.app.library.TrashScreen
 import com.mantel.app.media.DeviceMedia
 import com.mantel.app.media.SyncScreen
+import com.mantel.app.share.SharedScreen
 
 /**
  * One activity. Sign-in leaves the app for a browser and comes back through the deep link, and
@@ -92,25 +104,40 @@ class MainActivity : ComponentActivity() {
                 null -> Unit
             }
 
-            // One screen replaces another, and says only that: a crossfade, no slide, because
-            // these screens have no arrangement in space to imply (DESIGN.md).
-            AnimatedContent(
-                targetState = screen,
-                transitionSpec = {
-                    val spec = tween<Float>(Tokens.Motion.medium, easing = Tokens.Motion.ease)
-                    fadeIn(spec) togetherWith fadeOut(spec)
-                },
-                contentKey = { it.key() },
-                label = "screen",
-            ) { current ->
-                when (current) {
-                    is Screen.Starting -> Page { Title("Mantel") }
-                    is Screen.SignIn -> SignInScreen(current, model)
-                    is Screen.Albums -> AlbumsScreen(current, model)
-                    is Screen.Library -> LibraryScreen(current, model)
-                    is Screen.Sync -> SyncScreen(current, model)
-                    is Screen.Album -> AlbumScreen(current, upload, model)
+            // The navigation bar belongs to the three sections and to nothing visited from them.
+            val section = screen.section
+            Column(Modifier.fillMaxSize().background(Tokens.Colour.surface)) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        // The bar keeps clear of the system's own; the screen above it need not.
+                        .then(if (section != null) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
+                ) {
+                    // One screen replaces another, and says only that: a crossfade, no slide,
+                    // because these screens have no arrangement in space to imply (DESIGN.md).
+                    AnimatedContent(
+                        targetState = screen,
+                        transitionSpec = {
+                            val spec = tween<Float>(Tokens.Motion.medium, easing = Tokens.Motion.ease)
+                            fadeIn(spec) togetherWith fadeOut(spec)
+                        },
+                        contentKey = { it.key() },
+                        label = "screen",
+                    ) { current ->
+                        when (current) {
+                            is Screen.Starting -> Page { Title("Mantel") }
+                            is Screen.SignIn -> SignInScreen(current, model)
+                            is Screen.Albums -> AlbumsScreen(current, model)
+                            is Screen.Library -> LibraryScreen(current, model)
+                            is Screen.Shared -> SharedScreen(current, model)
+                            is Screen.Account -> AccountScreen(current, model)
+                            is Screen.Trash -> TrashScreen(current, model)
+                            is Screen.Sync -> SyncScreen(current, model)
+                            is Screen.Album -> AlbumScreen(current, upload, model)
+                        }
+                    }
                 }
+                if (section != null) NavBar(section, model::openSection)
             }
         }
 
@@ -201,6 +228,9 @@ private fun Screen.key(): String =
         is Screen.SignIn -> "sign-in"
         is Screen.Albums -> "albums"
         is Screen.Library -> "library"
+        is Screen.Shared -> "shared"
+        is Screen.Account -> "account"
+        is Screen.Trash -> "trash"
         is Screen.Sync -> "sync"
         is Screen.Album -> "album:${album.id}"
     }

@@ -26,7 +26,7 @@ import com.mantel.app.Screen
 import com.mantel.app.design.Body
 import com.mantel.app.design.Button
 import com.mantel.app.design.Card
-import com.mantel.app.design.Title
+import com.mantel.app.design.ScreenHeader
 import com.mantel.app.design.Tokens
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
@@ -58,9 +58,7 @@ fun SyncScreen(
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
     ) {
-        Spacer(Modifier.height(Tokens.Space.titleY))
-        Body("Back", style = captionStyle, modifier = Modifier.pressable { model.back() })
-        Title("Backup")
+        ScreenHeader("Backup", onBack = model::back, onMargin = false)
 
         Card {
             Body(
