@@ -110,6 +110,20 @@ class TimelineTest {
     }
 
     @Test
+    fun `a photograph on the phone whose library copy is in the trash says so, and shows once`() {
+        val timeline =
+            buildTimeline(
+                roll = listOf(phone("1", "2026-09-20T10:00:00Z", hash = "aa"), phone("2", "2026-09-20T09:00:00Z", size = 77)),
+                library = emptyList(),
+                libraryComplete = true,
+                trash = listOf(item("t1", "2026-09-20T10:00:00Z", hash = "aa"), item("t2", "2026-09-20T11:00:00Z", size = 77)),
+                zone = utc,
+            )
+        assertEquals(2, timeline.tiles.size, "a trashed item is never a tile of its own")
+        assertTrue(timeline.tiles.all { it.trashed && !it.backedUp })
+    }
+
+    @Test
     fun `a photograph taken today shows while the library's first page is also from today`() {
         // A day of three hundred photographs fills the first page with that day. The phone's own
         // photographs from the same day must not wait for the second page to appear.

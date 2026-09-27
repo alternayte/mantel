@@ -18,6 +18,8 @@ data class Tile(
     val takenAt: Long,
     val phone: RollPhoto? = null,
     val item: ItemView? = null,
+    /** On the phone, with its library copy in the trash: deleted, and not waiting to be backed up. */
+    val trashed: Boolean = false,
 ) {
     /** The badge: the library holds it, or it is only on the phone so far. */
     val backedUp: Boolean get() = item != null
@@ -85,6 +87,9 @@ private const val ZONE_SLACK_MS = 14L * 60 * 60 * 1000
  * held back: until the hash says otherwise, two photographs of one size from one moment are one
  * photograph, because showing it twice is the failure a person notices.
  *
+ * A photograph on the phone whose library copy is in the trash is matched the same way against the
+ * trash, and marked as such: it was deleted, and the backup will not send it again.
+ *
  * The library arrives a page at a time, newest first. While more of it is to come, a photograph on
  * the phone older than the last page is left out, because its library copy may be on the next page
  * and it would show twice until that page arrived. The boundary is the page's oldest photograph and
@@ -95,27 +100,35 @@ fun buildTimeline(
     roll: List<RollPhoto>,
     library: List<ItemView>,
     libraryComplete: Boolean,
+    trash: List<ItemView> = emptyList(),
     zone: ZoneId = ZoneId.systemDefault(),
 ): Timeline {
-    val libraryTimes = library.associate { it.id to takenAtOf(it) }
+    val libraryTimes = library.associate { it.id to takenAtOf(it) } + trash.associate { it.id to takenAtOf(it) }
     val byHash = library.filter { it.contentHash != null }.associateBy { it.contentHash }
     val bySize = library.groupBy { it.byteSize }
+    val trashByHash = trash.filter { it.contentHash != null }.associateBy { it.contentHash }
+    val trashBySize = trash.groupBy { it.byteSize }
     val oldest = if (libraryComplete) null else libraryTimes.values.minOrNull()
     val consumed = HashSet<String>()
     val tiles = ArrayList<Tile>(roll.size + library.size)
 
     roll.forEach { photo ->
         if (oldest != null && photo.takenAt < oldest) return@forEach
-        val match =
-            if (photo.hash != null) {
-                byHash[photo.hash]
+
+        fun near(candidates: List<ItemView>?) =
+            candidates?.firstOrNull { it.id !in consumed && abs(libraryTimes.getValue(it.id) - photo.takenAt) <= ZONE_SLACK_MS }
+        val match = if (photo.hash != null) byHash[photo.hash] else near(bySize[photo.size])
+        val inTrash =
+            if (match != null) {
+                null
+            } else if (photo.hash != null) {
+                trashByHash[photo.hash]
             } else {
-                bySize[photo.size]?.firstOrNull {
-                    it.id !in consumed && abs(libraryTimes.getValue(it.id) - photo.takenAt) <= ZONE_SLACK_MS
-                }
+                near(trashBySize[photo.size])
             }
         match?.let { consumed += it.id }
-        tiles += Tile(key = "p:${photo.uri}", takenAt = photo.takenAt, phone = photo, item = match)
+        inTrash?.let { consumed += it.id }
+        tiles += Tile(key = "p:${photo.uri}", takenAt = photo.takenAt, phone = photo, item = match, trashed = inTrash != null)
     }
     library.forEach { item ->
         if (item.id in consumed) return@forEach

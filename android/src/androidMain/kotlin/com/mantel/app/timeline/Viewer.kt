@@ -98,32 +98,56 @@ fun Modifier.growsInto(key: String): Modifier {
 }
 
 /**
- * One photograph at full screen. Swipe moves on, pinch and double-tap zoom, swipe down closes; a video
- * plays with a scrubber. A photograph on the phone opens from the phone, at full quality and at once;
- * one only in the library opens from its display WebP.
+ * One photograph at full screen, from Photos: the timeline's tiles, with Share, Add to album, Info
+ * and Delete.
  */
 @Composable
 fun Viewer(
     state: Screen.Photos,
     model: AppModel,
+) = MediaViewer(
+    tiles = state.timeline.tiles,
+    viewing = state.viewing,
+    chrome = state.chrome,
+    onMoved = model::viewerMoved,
+    onClose = model::closeViewer,
+    onTap = model::toggleChrome,
+    onBack = { if (state.showingInfo) model.toggleInfo() else model.closeViewer() },
+) { tile -> Chrome(state, model, tile) }
+
+/**
+ * Photographs at full screen, whichever screen opened them. Swipe moves on, pinch and double-tap
+ * zoom, swipe down closes; a video plays with a scrubber. A photograph on the phone opens from the
+ * phone, at full quality and at once; one only in the library opens from its display WebP. The
+ * screen that opened it supplies the controls.
+ */
+@Composable
+fun MediaViewer(
+    tiles: List<Tile>,
+    viewing: String?,
+    chrome: Boolean,
+    onMoved: (String) -> Unit,
+    onClose: () -> Unit,
+    onTap: () -> Unit,
+    onBack: () -> Unit,
+    controls: @Composable (Tile?) -> Unit,
 ) {
-    val tiles = state.timeline.tiles
-    val start = tiles.indexOfFirst { it.key == state.viewing }.coerceAtLeast(0)
+    val start = tiles.indexOfFirst { it.key == viewing }.coerceAtLeast(0)
     val pager = rememberPagerState(initialPage = start) { tiles.size }
     val flick = rememberFlickToDismissState(dismissThresholdRatio = 0.15f)
 
-    BackHandler { if (state.showingInfo) model.toggleInfo() else model.closeViewer() }
+    BackHandler(onBack = onBack)
 
-    // A deleted photograph moves the viewer to the one that took its place.
-    LaunchedEffect(state.viewing, tiles) {
-        val index = tiles.indexOfFirst { it.key == state.viewing }
+    // A photograph taken away moves the viewer to the one that took its place.
+    LaunchedEffect(viewing, tiles) {
+        val index = tiles.indexOfFirst { it.key == viewing }
         if (index >= 0 && index != pager.currentPage) pager.scrollToPage(index)
     }
     LaunchedEffect(pager.settledPage) {
-        tiles.getOrNull(pager.settledPage)?.let { if (it.key != state.viewing) model.viewerMoved(it.key) }
+        tiles.getOrNull(pager.settledPage)?.let { if (it.key != viewing) onMoved(it.key) }
     }
     LaunchedEffect(flick.gestureState) {
-        if (flick.gestureState is FlickToDismissState.GestureState.Dismissing) model.closeViewer()
+        if (flick.gestureState is FlickToDismissState.GestureState.Dismissing) onClose()
     }
 
     val dim = (1f - flick.offsetFraction * 2).coerceIn(0f, 1f)
@@ -140,20 +164,20 @@ fun Viewer(
                 // Only the page on screen grows from its tile. The pager composes its neighbours too,
                 // and each would otherwise leave its own tile at the same moment.
                 if (tile.video) {
-                    VideoPage(tile, grows = current, playing = current && pager.settledPage == page, onTap = model::toggleChrome)
+                    VideoPage(tile, grows = current, playing = current && pager.settledPage == page, onTap = onTap)
                 } else {
-                    PhotoPage(tile, grows = current, onTap = model::toggleChrome)
+                    PhotoPage(tile, grows = current, onTap = onTap)
                 }
             }
         }
 
         AnimatedVisibility(
-            visible = state.chrome && flick.offsetFraction == 0f,
+            visible = chrome && flick.offsetFraction == 0f,
             enter = fadeIn(tween(Tokens.Motion.fast)),
             exit = fadeOut(tween(Tokens.Motion.fast)),
             modifier = Modifier.fillMaxSize(),
         ) {
-            Chrome(state, model, tiles.getOrNull(pager.currentPage))
+            controls(tiles.getOrNull(pager.currentPage))
         }
     }
 }
@@ -338,13 +362,14 @@ private val TAKEN = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy, HH:mm")
 
 /** When it was taken, its size, and where it lives: on this phone, in the library, or both. */
 @Composable
-private fun Info(
+fun Info(
     tile: Tile,
     modifier: Modifier = Modifier,
 ) {
     val where =
         when {
             tile.phone != null && tile.item != null -> "On this phone and in your library"
+            tile.trashed -> "On this phone. Its library copy is in the trash, and the backup will not send it again."
             tile.phone != null -> "Only on this phone. It is not backed up yet."
             else -> "Only in your library"
         }

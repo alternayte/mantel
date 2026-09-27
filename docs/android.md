@@ -38,8 +38,8 @@ the only exception.
 - **Account**, behind the avatar on Photos: the space you use, backup, the trash and sign-out.
 - **Trash**: a deleted photograph waits there for 30 days and can be restored, or removed at once.
   Deleting in the app never removes anything from the phone.
-- **Albums**: make one, see what is in it, set a cover, caption an item, reorder by holding a
-  photograph and dragging it.
+- **Albums**: make one, see what is in it, reorder by holding a photograph and dragging it. A tap
+  opens an item full screen, where you caption it, make it the cover, or take it out of the album.
 - **Upload** through the system photo picker, so the app sees the files you chose and nothing else.
   The upload runs in the background with a notification, and resumes where it stopped if it is
   interrupted. A file the library already holds is never sent twice: the app hashes it first and the

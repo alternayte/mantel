@@ -133,6 +133,7 @@ class FakeServer {
     var album: (String) -> String = { emptyAlbum(it) }
     var shareLinks: String = "[]"
     var library: String = """{"items":[],"next":null,"totalItems":0}"""
+    var trash: String = """{"items":[],"next":null,"totalItems":0}"""
 
     /** Nothing answers until [release]. */
     fun hold() {
@@ -159,6 +160,7 @@ class FakeServer {
             path.startsWith("/api/albums/") && path.endsWith("/share-links") -> shareLinks
             path.startsWith("/api/albums/") -> album(path.removePrefix("/api/albums/"))
             path == "/api/library" -> library
+            path == "/api/library/trash" -> trash
             else -> "{}"
         }
     }

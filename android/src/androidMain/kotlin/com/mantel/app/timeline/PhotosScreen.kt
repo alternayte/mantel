@@ -396,6 +396,7 @@ private fun TimelineGrid(
                 is Cell.Photo ->
                     TimelineTile(
                         tile = cell.tile,
+                        badged = state.libraryRead,
                         selecting = state.selecting,
                         selected = cell.tile.key in state.selected,
                         onClick = {
@@ -474,6 +475,7 @@ private fun DayHeading(
 @Composable
 private fun TimelineTile(
     tile: Tile,
+    badged: Boolean,
     selecting: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -486,7 +488,12 @@ private fun TimelineTile(
             .pressable(onClick = onClick)
             .semantics {
                 this.selected = selected
-                contentDescription = if (tile.backedUp) "Photograph, backed up" else "Photograph, on this phone only"
+                contentDescription =
+                    when {
+                        tile.backedUp -> "Photograph, backed up"
+                        tile.trashed -> "Photograph, its library copy in the trash"
+                        else -> "Photograph, on this phone only"
+                    }
             },
     ) {
         val model: Any? =
@@ -503,10 +510,18 @@ private fun TimelineTile(
                 modifier = Modifier.fillMaxSize().growsInto(tile.key),
             )
         }
-        Badge(
-            if (tile.backedUp) Icons.CloudCheck else Icons.CloudUpload,
-            Modifier.align(Alignment.TopEnd).padding(4.dp),
-        )
+        // No badge until the library has answered: before then "not backed up" would be a guess,
+        // and on a cold start it was wrong for every photograph for a second or two.
+        if (badged) {
+            Badge(
+                when {
+                    tile.backedUp -> Icons.CloudCheck
+                    tile.trashed -> Icons.Trash2
+                    else -> Icons.CloudUpload
+                },
+                Modifier.align(Alignment.TopEnd).padding(4.dp),
+            )
+        }
         if (tile.video) {
             Row(
                 Modifier.align(Alignment.BottomStart).padding(4.dp),

@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -174,6 +175,52 @@ fun ListRow(
         }
         Hairline(Modifier.padding(start = Tokens.Space.page))
     }
+}
+
+/**
+ * A row that is on or off. The mark is a filled circle in the accent when it is on and an empty one
+ * when it is off, so either state reads at a glance; a square that was dark on a dark card when off
+ * could not be told from nothing.
+ */
+@Composable
+fun ToggleRow(
+    title: String,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    detail: String? = null,
+    enabled: Boolean = true,
+) {
+    ListRow(
+        title = title,
+        detail = detail,
+        onClick = if (enabled) onToggle else null,
+        modifier =
+            modifier.semantics(mergeDescendants = true) {
+                role = Role.Checkbox
+                stateDescription = if (checked) "On" else "Off"
+            },
+        trailing = {
+            Icon(
+                if (checked) Icons.CircleCheck else Icons.Circle,
+                null,
+                tint = if (checked) Tokens.Colour.accent else Tokens.Colour.muted,
+            )
+        },
+    )
+}
+
+/** A heading above a group of rows, in the caption's type. */
+@Composable
+fun SectionHeading(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    BasicText(
+        text,
+        style = captionStyle,
+        modifier = modifier.padding(start = Tokens.Space.page, end = Tokens.Space.page, top = 24.dp, bottom = 4.dp),
+    )
 }
 
 /** The one-pixel line, between rows and under a heading. */

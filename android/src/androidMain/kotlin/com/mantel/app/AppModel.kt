@@ -104,6 +104,13 @@ sealed interface Screen {
         val newAlbumTitle: String = "",
         /** Something the last action wants said, such as what a delete left on the phone. */
         val note: String? = null,
+        /** The trash, so a photograph on the phone whose library copy was deleted says so. */
+        val trash: List<ItemView> = emptyList(),
+        /**
+         * Whether the library has answered at least once. Until it has, a photograph on the phone
+         * cannot be said to be backed up or not, and its tile says neither.
+         */
+        val libraryRead: Boolean = false,
         /** The tile open full screen, if one is. The grid stays beneath it, where it was. */
         val viewing: String? = null,
         /** The tile the viewer last showed, so the grid can bring it into view on the way back. */
@@ -177,8 +184,13 @@ sealed interface Screen {
 
     data class Album(
         val album: AlbumView,
+        /** The item open full screen, if one is. Its caption, cover and removal are done there. */
         val selected: String? = null,
         val caption: String = "",
+        val editingCaption: Boolean = false,
+        val showingInfo: Boolean = false,
+        /** The viewer's controls. A tap on the photograph hides them and shows them again. */
+        val chrome: Boolean = true,
         val links: List<ShareLinkView> = emptyList(),
         val sharing: Boolean = false,
         val pin: String = "",
@@ -262,6 +274,7 @@ private class Held {
     var library: LibraryHeld? = null
     var shared: List<SharedLink>? = null
     var roll: List<RollPhoto>? = null
+    var trash: List<ItemView>? = null
     var timeline: Timeline? = null
 
     /** The density a person chose stays chosen across a screen change. */
@@ -804,7 +817,9 @@ class AppModel(
             library = last?.items.orEmpty(),
             totalItems = last?.totalItems ?: 0,
             cursor = last?.cursor,
+            libraryRead = last != null,
             roll = held.roll.orEmpty(),
+            trash = held.trash.orEmpty(),
             phoneAccess = phone.hasAccess(),
             timeline = held.timeline ?: Timeline.EMPTY,
             columns = held.columns,
@@ -837,11 +852,22 @@ class AppModel(
             onPhotos { api ->
                 val page = api.library(limit = LIBRARY_PAGE)
                 held.library = LibraryHeld(page.items, page.totalItems, page.next)
+                // The trash is small and read whole: thirty days of deletions.
+                val trash = mutableListOf<ItemView>()
+                var after: String? = null
+                do {
+                    val trashPage = api.trash(after = after, limit = TRASH_PAGE)
+                    trash += trashPage.items
+                    after = trashPage.next
+                } while (after != null)
+                held.trash = trash
+                _screen.update<Screen.Photos> { it.copy(trash = trash) }
                 _screen.update<Screen.Photos> {
                     it.copy(
                         library = page.items,
                         totalItems = page.totalItems,
                         cursor = page.next,
+                        libraryRead = true,
                         busy = false,
                         refreshing = false,
                     )
@@ -880,7 +906,7 @@ class AppModel(
         val state = _screen.value as? Screen.Photos ?: return
         val timeline =
             withContext(Dispatchers.Default) {
-                buildTimeline(state.roll, state.library, libraryComplete = state.cursor == null)
+                buildTimeline(state.roll, state.library, libraryComplete = state.cursor == null, trash = state.trash)
             }
         held.timeline = timeline
         _screen.update<Screen.Photos> { current ->
@@ -978,9 +1004,13 @@ class AppModel(
         val tile = viewed(state) ?: return
         val itemId = tile.item?.id
         if (itemId == null) {
-            _screen.update<Screen.Photos> {
-                it.copy(note = "This photograph is only on this phone, so it stays. Mantel never deletes from the phone.")
-            }
+            val note =
+                if (tile.trashed) {
+                    "Its library copy is already in the trash. The copy on this phone stays: Mantel never deletes from the phone."
+                } else {
+                    "This photograph is only on this phone, so it stays. Mantel never deletes from the phone."
+                }
+            _screen.update<Screen.Photos> { it.copy(note = note) }
             return
         }
         scope.launch {
@@ -1255,14 +1285,48 @@ class AppModel(
 
     // --- one album ----------------------------------------------------------------------------
 
+    /** Opens an item full screen, or closes the viewer with null. */
     fun select(itemId: String?) {
         _screen.update<Screen.Album> { state ->
             state.copy(
                 selected = itemId,
                 caption = state.album.items.firstOrNull { it.id == itemId }?.caption.orEmpty(),
+                editingCaption = false,
+                showingInfo = false,
+                chrome = true,
                 error = null,
             )
         }
+    }
+
+    /** A swipe in the album's viewer settled on another item. */
+    fun albumViewerMoved(itemId: String) {
+        _screen.update<Screen.Album> { state ->
+            state.copy(
+                selected = itemId,
+                caption = state.album.items.firstOrNull { it.id == itemId }?.caption.orEmpty(),
+                editingCaption = false,
+                showingInfo = false,
+            )
+        }
+    }
+
+    fun toggleAlbumChrome() {
+        _screen.update<Screen.Album> { it.copy(chrome = !it.chrome) }
+    }
+
+    fun editCaption(open: Boolean) {
+        _screen.update<Screen.Album> { state ->
+            state.copy(
+                editingCaption = open,
+                showingInfo = false,
+                caption = state.selectedItem?.caption.orEmpty(),
+            )
+        }
+    }
+
+    fun toggleAlbumInfo() {
+        _screen.update<Screen.Album> { it.copy(showingInfo = !it.showingInfo, editingCaption = false) }
     }
 
     fun setCaption(text: String) {
@@ -1276,7 +1340,7 @@ class AppModel(
         scope.launch {
             onAlbum { api, album ->
                 api.setCaption(album.id, itemId, caption)
-                reload(api, album.id) { it.copy(selected = null) }
+                reload(api, album.id) { it.copy(editingCaption = false) }
             }
         }
     }
@@ -1287,7 +1351,7 @@ class AppModel(
         scope.launch {
             onAlbum { api, album ->
                 api.setCover(album.id, itemId)
-                reload(api, album.id) { it.copy(selected = null) }
+                reload(api, album.id) { it }
             }
         }
     }
@@ -1309,7 +1373,7 @@ class AppModel(
         scope.launch {
             onAlbum { api, album ->
                 api.retryItem(album.id, itemId)
-                reload(api, album.id) { it.copy(selected = null) }
+                reload(api, album.id) { it }
             }
         }
     }
@@ -1810,6 +1874,9 @@ class AppModel(
     private companion object {
         /** Well past one screenful at the densest grid, and it is one request. */
         const val LIBRARY_PAGE = 120
+
+        /** A page of the trash. Thirty days of deletions is one or two of these. */
+        const val TRASH_PAGE = 500
 
         /** More photographs than the densest grid shows on one screen. */
         const val FIRST_SCREEN = 120

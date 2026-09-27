@@ -45,6 +45,15 @@ object Icons {
         )
     }
 
+    /** circle-minus.svg */
+    val CircleMinus: ImageVector by lazy {
+        lucide(
+            "CircleMinus",
+            "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0Z",
+            "M8 12h8",
+        )
+    }
+
     /** circle-user-round.svg */
     val CircleUserRound: ImageVector by lazy {
         lucide(
@@ -92,6 +101,16 @@ object Icons {
         )
     }
 
+    /** image.svg */
+    val Image: ImageVector by lazy {
+        lucide(
+            "Image",
+            "M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1 -2 2h-14a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2Z",
+            "M7 9a2 2 0 1 0 4 0a2 2 0 1 0 -4 0Z",
+            "m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21",
+        )
+    }
+
     /** images.svg */
     val Images: ImageVector by lazy {
         lucide(
@@ -130,6 +149,17 @@ object Icons {
             "m16 17 5-5-5-5",
             "M21 12H9",
             "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4",
+        )
+    }
+
+    /** message-square-text.svg */
+    val MessageSquareText: ImageVector by lazy {
+        lucide(
+            "MessageSquareText",
+            "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z",
+            "M7 11h10",
+            "M7 15h6",
+            "M7 7h8",
         )
     }
 

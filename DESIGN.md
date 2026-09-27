@@ -95,7 +95,8 @@ small tracked capitals stay for the viewer's album title and the app's opening f
 **Flat rows, not cards.** A list is rows on the page with a hairline between them: the thing on the
 first line in `type.row`, its state on the second in `muted`, a chevron when the row opens something.
 A list of cards was a list of boxes, and it was the list's largest gap to the references. A card is
-kept for a form and for a message about the whole screen.
+kept for a form and for a message about the whole screen. A setting that is on or off is a row with
+a circle at its end: filled in the accent when on, empty and `muted` when off.
 
 **One accent, Halide's yellow.** `colour.accent`, on structure and state only: the current section, a
 selection, what is running. Never on a photograph and never for failure, which keeps `colour.fail`.
@@ -146,6 +147,15 @@ cropped. Close sits at the top; Share, Add to album, Info and Delete at the foot
 photograph hides them and shows them again. Swipe moves on; swipe down closes, dimming the black as
 the photograph falls away; it shrinks back into its tile. Info is a card at the foot in
 `surface-lift`. A video's scrubber is a hairline filled with the accent.
+
+An album opens its items in the same viewer, in the album's order, with the album's own controls:
+Caption, Cover, Info, and Remove from this album. What is done to one item in an album is done over
+the photograph, not in a card over the grid. The album's grid runs to the edges like the library's,
+and its title carries Add photos, Add from the library and Share.
+
+On Photos, a tile carries no badge until the library has answered once; before then, "not backed
+up" is a guess. A photograph on the phone whose library copy is in the trash carries the trash
+glyph.
 
 ## The app's motion
 
