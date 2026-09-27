@@ -1,6 +1,7 @@
 package com.mantel.app
 
 import android.Manifest
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -29,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
 import com.mantel.app.account.AccountScreen
 import com.mantel.app.album.AlbumScreen
@@ -43,6 +45,10 @@ import com.mantel.app.library.TrashScreen
 import com.mantel.app.media.DeviceMedia
 import com.mantel.app.media.SyncScreen
 import com.mantel.app.share.SharedScreen
+import com.mantel.app.timeline.PhotosScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * One activity. Sign-in leaves the app for a browser and comes back through the deep link, and
@@ -101,6 +107,10 @@ class MainActivity : ComponentActivity() {
                     share(pending.url)
                     model.effectHandled()
                 }
+                is Effect.ShareMedia -> {
+                    lifecycleScope.launch { shareMedia(pending) }
+                    model.effectHandled()
+                }
                 null -> Unit
             }
 
@@ -128,6 +138,7 @@ class MainActivity : ComponentActivity() {
                             is Screen.Starting -> Page { Title("Mantel") }
                             is Screen.SignIn -> SignInScreen(current, model)
                             is Screen.Albums -> AlbumsScreen(current, model)
+                            is Screen.Photos -> PhotosScreen(current, model)
                             is Screen.Library -> LibraryScreen(current, model)
                             is Screen.Shared -> SharedScreen(current, model)
                             is Screen.Account -> AccountScreen(current, model)
@@ -183,6 +194,41 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * Photographs through the share sheet. A photograph on the phone is handed over as it is; one
+     * only in the library is fetched at display size into a scratch folder first, because another app can
+     * only be given a file, not a signed URL that expires in an hour.
+     */
+    private suspend fun shareMedia(media: Effect.ShareMedia) {
+        val fetched =
+            withContext(Dispatchers.IO) {
+                val folder =
+                    java.io.File(cacheDir, "shared").apply {
+                        deleteRecursively()
+                        mkdirs()
+                    }
+                media.remote.mapIndexedNotNull { index, url ->
+                    runCatching {
+                        val file = java.io.File(folder, "mantel-${index + 1}.webp")
+                        java.net.URL(url).openStream().use { input -> file.outputStream().use { input.copyTo(it) } }
+                        FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+                    }.getOrNull()
+                }
+            }
+        val uris = ArrayList(media.phone.map(Uri::parse) + fetched)
+        if (uris.isEmpty()) return
+        val send =
+            if (uris.size == 1) {
+                Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris.single())
+            } else {
+                Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            }
+        send.type = "*/*"
+        send.clipData = ClipData.newRawUri(null, uris.first()).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        startActivity(Intent.createChooser(send, null))
+    }
+
+    /**
      * The upload runs in the foreground and shows its progress there, which on Android 13 and later
      * needs permission. It is asked for when the first upload starts, not on first launch, because
      * that is the moment it means something.
@@ -227,6 +273,7 @@ private fun Screen.key(): String =
         is Screen.Starting -> "starting"
         is Screen.SignIn -> "sign-in"
         is Screen.Albums -> "albums"
+        is Screen.Photos -> "photos"
         is Screen.Library -> "library"
         is Screen.Shared -> "shared"
         is Screen.Account -> "account"

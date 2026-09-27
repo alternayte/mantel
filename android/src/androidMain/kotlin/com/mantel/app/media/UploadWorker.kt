@@ -20,6 +20,8 @@ import com.mantel.app.api.ApiException
 import com.mantel.app.api.MantelApi
 import com.mantel.app.api.PresignedPart
 import com.mantel.app.auth.StoredSettings
+import com.mantel.app.timeline.recordUpload
+import com.mantel.app.timeline.sha256Of
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.flow.first
@@ -125,8 +127,14 @@ class UploadWorker(
         if (sendable.isEmpty()) return batch.copy(items = marked)
 
         // Hashed first, so the API can say it already holds a file and no bytes move for it.
-        val intent = api.uploadIntent(sendable.map { it.declared(sha256Of(Uri.parse(it.uri))) })
+        val hashes = sendable.associate { it.uri to sha256Of(context, Uri.parse(it.uri)) }
+        val intent = api.uploadIntent(sendable.map { it.declared(hashes[it.uri]) })
         val granted = sendable.map { it.uri }.zip(intent.items).toMap()
+        // The timeline shows a photograph once because the index knows which item it became.
+        sendable.forEach { item ->
+            val hash = hashes[item.uri] ?: return@forEach
+            recordUpload(context, item.uri, item.sizeBytes, hash, granted[item.uri]?.itemId)
+        }
         return batch.copy(
             items =
                 marked.map { item ->
@@ -141,24 +149,6 @@ class UploadWorker(
                 },
         )
     }
-
-    /**
-     * The SHA-256 of a file, read in blocks rather than into memory: this runs on a phone and the
-     * file may be a two gigabyte video.
-     */
-    private fun sha256Of(uri: Uri): String? =
-        runCatching {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            open(uri).use { input ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read <= 0) break
-                    digest.update(buffer, 0, read)
-                }
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        }.getOrNull()
 
     /**
      * One file. A small one is a single PUT; a large one is parts, and on a second attempt the

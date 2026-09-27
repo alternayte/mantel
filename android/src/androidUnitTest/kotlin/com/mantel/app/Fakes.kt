@@ -94,6 +94,22 @@ class FakeUploads : Uploads {
     override fun reports(albumId: String?): Flow<UploadReport> = emptyFlow()
 }
 
+/** A phone with no photographs of its own, or with whichever ones a test gives it. */
+class FakePhoneMedia(
+    var access: Boolean = false,
+    var photos: List<com.mantel.app.timeline.RollPhoto> = emptyList(),
+) : com.mantel.app.timeline.PhoneMedia {
+    var hashingAskedFor = 0
+
+    override fun hasAccess() = access
+
+    override suspend fun roll() = if (access) photos else emptyList()
+
+    override fun hashWhenCharging() {
+        hashingAskedFor++
+    }
+}
+
 /**
  * A server that answers from a script and counts what it was asked.
  *
@@ -102,6 +118,7 @@ class FakeUploads : Uploads {
  * the ones the app ships. The transport answers in the caller's own coroutine, so a test's virtual
  * clock sees the whole call rather than losing it to a thread pool.
  */
+
 class FakeServer {
     val requests = mutableListOf<String>()
     private val gate = CompletableDeferred<Unit>()

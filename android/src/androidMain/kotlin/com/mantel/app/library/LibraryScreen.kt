@@ -4,10 +4,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -16,52 +14,36 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.tooling.preview.Preview
 import com.mantel.app.AppModel
 import com.mantel.app.Screen
 import com.mantel.app.design.Body
 import com.mantel.app.design.Button
-import com.mantel.app.design.ButtonRow
-import com.mantel.app.design.Card
-import com.mantel.app.design.IconButton
-import com.mantel.app.design.Icons
+import com.mantel.app.design.Hairline
 import com.mantel.app.design.ItemTile
-import com.mantel.app.design.PullToRefresh
 import com.mantel.app.design.Samples
 import com.mantel.app.design.ScreenHeader
 import com.mantel.app.design.Tokens
-import com.mantel.app.design.UploadProgress
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
 import com.mantel.app.design.pressable
-import com.mantel.app.design.rememberPull
 import com.mantel.app.previewModel
 import kotlinx.coroutines.flow.first
 
 /**
- * Every photograph the account owns, newest first.
- *
- * A grid and a selection and nothing else. Search is what people stay on a photo library for, and
- * it is deliberately absent: this exists so a backup is visible, and so an album can be assembled
- * from more than what was picked in this session.
+ * The library, opened over an album to choose what goes into it. Everything here is already in the
+ * library, so adding it costs no upload and no quota: an album is a selection.
  */
 @Composable
 fun LibraryScreen(
     state: Screen.Library,
     model: AppModel,
 ) {
-    // Photos is a section, so back leaves the app; opened from an album, it returns to it.
-    val canGoBack by model.canGoBack.collectAsState()
-    val backup by model.backupStatus.collectAsState()
-    BackHandler(enabled = canGoBack) { model.back() }
+    BackHandler { model.back() }
 
     val grid = rememberLazyGridState()
-    val pull = rememberPull(model::refresh)
 
     // The next page is asked for before the grid runs out, not when it has. The effect re-arms on
     // every page, and reads the count from the current state: a remembered lambda would hold the
@@ -79,55 +61,19 @@ fun LibraryScreen(
         Modifier
             .fillMaxSize()
             .background(Tokens.Colour.surface)
-            .safeDrawingPadding()
-            .nestedScroll(pull),
+            .safeDrawingPadding(),
         verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
     ) {
-        if (state.pickingFor != null) {
-            ScreenHeader("Add to album", onBack = model::back)
-        } else {
-            // Who is signed in, the space they use, backup, the trash and sign-out are behind the
-            // avatar: visited, not lived in.
-            ScreenHeader("Photos") {
-                IconButton(Icons.CircleUserRound, "Account", model::openAccount)
-            }
-        }
-        // Everything but the grid sits on the page margin. The grid runs to the screen's edges:
-        // photographs are the page, and a margin round them frames a grid of frames.
+        ScreenHeader("Add to album", onBack = model::back)
         Column(
             Modifier.padding(horizontal = Tokens.Space.page),
             verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
         ) {
-            PullToRefresh(refreshing = state.refreshing, pull = pull.fraction)
-            Body(
-                if (state.totalItems == 1L) "1 item" else "${state.totalItems} items",
-                style = captionStyle,
-            )
-
-            // The phone's backup has no screen of its own, so it reports here, where its results land.
-            backup?.let { status ->
-                Card {
-                    if (status.failed != null) {
-                        Body(status.failed, style = failStyle)
-                        Body(
-                            "Nothing was lost. What did not arrive is still on this phone and will be offered again.",
-                            style = captionStyle,
-                        )
-                        Button(text = "Try the backup again", onClick = model::retryBackup, quiet = true)
-                    } else {
-                        Body("Backing up ${status.index + 1} of ${status.count}", style = captionStyle)
-                        UploadProgress(status.filename, status.doneBytes, status.totalBytes)
-                    }
-                }
-            }
-
+            Body(if (state.totalItems == 1L) "1 item" else "${state.totalItems} items", style = captionStyle)
             if (state.error != null) {
-                Card {
-                    Body(state.error, style = failStyle)
-                    if (state.retryable) Button(text = "Try again", onClick = model::retry, quiet = true)
-                }
+                Body(state.error, style = failStyle)
+                if (state.retryable) Button(text = "Try again", onClick = model::retry, quiet = true)
             }
-
             if (state.items.isEmpty() && !state.busy && state.error == null) {
                 Body(
                     "Nothing here yet. Everything uploaded, from this phone or from a browser, arrives here.",
@@ -136,6 +82,7 @@ fun LibraryScreen(
             }
         }
 
+        // The grid runs to the screen's edges: photographs are the page (DESIGN.md).
         LazyVerticalGrid(
             state = grid,
             columns = GridCells.Fixed(4),
@@ -153,67 +100,30 @@ fun LibraryScreen(
         }
 
         if (state.selected.isNotEmpty()) {
-            Card(Modifier.padding(horizontal = Tokens.Space.page)) {
-                Body("${state.selected.size} selected", style = captionStyle)
-                if (state.addingTo != null) {
-                    Body("Which album?", style = captionStyle)
-                    state.albums.forEach { album ->
-                        Button(
-                            text = album.title,
-                            onClick = { model.addSelectionTo(album.id) },
-                            enabled = !state.busy,
-                            quiet = true,
-                        )
-                    }
-                    Button(text = "Cancel", onClick = model::cancelAdd, quiet = true)
-                } else {
-                    ButtonRow {
-                        Button(
-                            text = "Add to album",
-                            onClick = model::chooseAlbum,
-                            modifier = Modifier.weight(1f),
-                            enabled = !state.busy,
-                        )
-                        Button(
-                            text = "Delete",
-                            onClick = model::deleteSelection,
-                            modifier = Modifier.weight(1f),
-                            enabled = !state.busy,
-                            quiet = true,
-                        )
-                    }
-                }
+            Column(Modifier.fillMaxWidth()) {
+                Hairline()
+                Button(
+                    text = if (state.selected.size == 1) "Add 1 to the album" else "Add ${state.selected.size} to the album",
+                    onClick = model::addSelectionToPickingAlbum,
+                    enabled = !state.busy,
+                    modifier = Modifier.padding(horizontal = Tokens.Space.page, vertical = Tokens.Space.rowY),
+                )
             }
         }
-        Spacer(Modifier.height(Tokens.Space.gutter))
     }
 }
 
-@Preview(name = "Library", widthDp = 360, heightDp = 720)
+private const val LOOKAHEAD = 12
+
+@Preview(name = "Add to album", widthDp = 360, heightDp = 720)
 @Composable
 private fun LibraryPreview() =
     LibraryScreen(
-        Screen.Library(items = Samples.items, totalItems = Samples.items.size.toLong()),
-        previewModel(),
-    )
-
-@Preview(name = "Library: selected", widthDp = 360, heightDp = 720)
-@Composable
-private fun SelectedPreview() =
-    LibraryScreen(
         Screen.Library(
-            items = Samples.items,
-            totalItems = Samples.items.size.toLong(),
-            selected = setOf(Samples.ready.id, Samples.video.id),
-            albums = Samples.albums,
+            pickingFor = "a1",
+            items = List(12) { Samples.ready.copy(id = "i$it") },
+            totalItems = 12,
+            selected = setOf("i1", "i4"),
         ),
         previewModel(),
     )
-
-/** The screen nobody remembers to design, and the first one a new account sees. */
-@Preview(name = "Library: empty", widthDp = 360, heightDp = 720)
-@Composable
-private fun EmptyLibraryPreview() = LibraryScreen(Screen.Library(), previewModel())
-
-/** How many tiles short of the end the next page is asked for: two rows of three. */
-private const val LOOKAHEAD = 6

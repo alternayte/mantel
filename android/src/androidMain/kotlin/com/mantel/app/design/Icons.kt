@@ -36,6 +36,15 @@ object Icons {
         )
     }
 
+    /** circle-check.svg */
+    val CircleCheck: ImageVector by lazy {
+        lucide(
+            "CircleCheck",
+            "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0Z",
+            "m16 9-5.5 5.5L8 12",
+        )
+    }
+
     /** circle-user-round.svg */
     val CircleUserRound: ImageVector by lazy {
         lucide(
@@ -46,6 +55,23 @@ object Icons {
         )
     }
 
+    /** circle.svg */
+    val Circle: ImageVector by lazy {
+        lucide(
+            "Circle",
+            "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0Z",
+        )
+    }
+
+    /** cloud-check.svg */
+    val CloudCheck: ImageVector by lazy {
+        lucide(
+            "CloudCheck",
+            "m17 15-5.5 5.5L9 18",
+            "M5.516 16.07A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 3.501 7.327",
+        )
+    }
+
     /** cloud-upload.svg */
     val CloudUpload: ImageVector by lazy {
         lucide(
@@ -53,6 +79,16 @@ object Icons {
             "M12 13v8",
             "M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242",
             "m8 17 4-4 4 4",
+        )
+    }
+
+    /** folder-plus.svg */
+    val FolderPlus: ImageVector by lazy {
+        lucide(
+            "FolderPlus",
+            "M12 10v6",
+            "M9 13h6",
+            "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z",
         )
     }
 
@@ -84,6 +120,14 @@ object Icons {
             "m16 17 5-5-5-5",
             "M21 12H9",
             "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4",
+        )
+    }
+
+    /** play.svg */
+    val Play: ImageVector by lazy {
+        lucide(
+            "Play",
+            "M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z",
         )
     }
 

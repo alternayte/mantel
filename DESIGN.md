@@ -120,6 +120,19 @@ bottom of the stack; a screen you visit from one pushes over it and hides the ba
 Account, storage, backup, the trash and sign-out are behind the avatar at the top of Photos. They are
 visited, not lived in, so they are one screen away rather than a section.
 
+## The timeline
+
+Photos is one grid of the phone's photographs and the library together, newest taken first, under a
+heading for each day in `type.row`. It runs to the screen's edges like the library grid below. Each
+tile carries a badge in its top corner, a 14dp glyph on a dark disc so it reads on a bright
+photograph: a cloud with a tick for a photograph the library holds, a cloud with an arrow for one
+only on the phone so far. A video adds a play glyph and its length at the foot.
+
+A selection is the accent: a frame round each selected tile, a filled circle in its corner, and the
+count in the title's place, with Share, Add to album and Delete where the screen's actions were.
+Pinch moves between three densities, three, four and six to a row. A handle on the right edge,
+`muted` at rest and the accent while held, scrolls by month and names the month it is on.
+
 ## The app's motion
 
 The viewer earns its stillness. The app is a tool, and a tool that gives no answer to a touch reads

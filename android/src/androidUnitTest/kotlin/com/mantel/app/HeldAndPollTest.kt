@@ -33,6 +33,7 @@ class HeldAndPollTest {
         settings = FakeSettings(),
         backup = FakeBackup(),
         uploads = FakeUploads(),
+        phone = FakePhoneMedia(),
         api = server::api,
         scope = scope,
     )
@@ -54,19 +55,19 @@ class HeldAndPollTest {
             val scope = scope()
             val model = model(server, scope)
 
-            // The app opens on Photos, the library.
+            // The app opens on Photos.
             model.start()
-            model.waitFor("the library, read") { it is Screen.Library && it.items.size == 1 }
+            model.waitFor("Photos, read") { it is Screen.Photos && it.timeline.tiles.size == 1 }
 
             model.openAlbums()
             model.waitFor("the albums again") { it is Screen.Albums }
 
             // The server answers nothing from here, so whatever is on the screen was held.
             server.hold()
-            model.openLibrary()
+            model.openPhotos()
 
-            val shown = model.screen.value as Screen.Library
-            assertEquals(1, shown.items.size, "the library drew nothing until the read returned")
+            val shown = model.screen.value as Screen.Photos
+            assertEquals(1, shown.timeline.tiles.size, "Photos drew nothing until the read returned")
             assertEquals(1, shown.totalItems)
 
             server.release()
@@ -83,7 +84,7 @@ class HeldAndPollTest {
             val model = model(server, scope)
 
             model.start()
-            model.waitFor("Photos") { it is Screen.Library }
+            model.waitFor("Photos") { it is Screen.Photos }
             model.openAlbums()
             model.waitFor("the albums, read") { it is Screen.Albums && it.albums.size == 1 }
 

@@ -48,7 +48,8 @@ fun ItemTile(
     val edge =
         stateColour(
             when {
-                isSelected || isCover -> Tokens.Colour.ink
+                isSelected -> Tokens.Colour.accent
+                isCover -> Tokens.Colour.ink
                 else -> Color.Transparent
             },
             "tile:${item.id}",

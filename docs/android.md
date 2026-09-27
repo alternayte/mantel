@@ -21,8 +21,13 @@ the only exception.
 - **Sign in** with a magic link or with GitHub, in your own browser rather than in the app. The app
   never sees your password and no page inside it asks for one.
 - **Photos, Albums and Shared**, in a bar at the foot of the screen. The app opens on Photos.
-- **Photos**: every photograph and video the account holds, newest taken first. An album is a
-  selection from it, so adding one to an album costs no upload and no storage.
+- **Photos**: one timeline of this phone's photographs and your library, grouped by the day each was
+  taken. A photograph shows the moment it is taken, marked as not yet backed up until it is, and a
+  photograph on the phone and in the library shows once. Showing the phone's photographs needs the
+  media permission, which Photos asks for only when you tap "Show this phone's photographs".
+- **Selecting**: hold a photograph to start, drag to extend, tap a day's heading to take the whole
+  day. A selection can be shared, added to an album or a new one, or deleted. Pinch changes how many
+  photographs fit in a row, and the handle on the right edge scrolls by month.
 - **Shared**: every live share link across all your albums, what each opens, when it expires, and
   a revoke.
 - **Account**, behind the avatar on Photos: the space you use, backup, the trash and sign-out.
@@ -60,6 +65,12 @@ When it is on:
 Media backed up this way lands in the library with a thumbnail and a 1600 px display copy, so you
 can open it after it has left the phone. The AVIF and the transcoded video a recipient's browser
 needs are rendered when it first joins an album.
+
+To show a photograph once, the app keeps an index on the phone of which photograph has which
+content hash. A photograph the backup sends is hashed as it goes. Photographs on the phone from
+before are hashed in the background only while the phone is charging, and again only if the file
+changes. Until a photograph is hashed, a library photograph of the same size taken at about the same
+time is treated as its copy.
 
 The library keeps whatever the camera produced, including formats this product cannot render. Those
 appear as a filename with no thumbnail and cannot be put in an album, because an album is what a
