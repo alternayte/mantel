@@ -131,12 +131,17 @@ delete those objects a day later, so restore the database first.
 
 ## Upgrading
 
-Images are published to `ghcr.io/alternayte/mantel` on every tag: `0.5.3`, `0.5` and `latest`. Pin a
+Images are published to `ghcr.io/alternayte/mantel` on every tag: `0.6.0`, `0.6` and `latest`. Pin a
 version in a deployment; `latest` is for trying it.
 
 Pull the image and restart. Migrations run at startup, and a migration the app cannot parse stops it
 rather than being skipped. Roll back by deploying the previous image only if the newer one added no
 migration; there is no down migration.
+
+From 0.5 to 0.6, upgrade the app and the worker together. The 0.6 worker asks the API for work it
+did not have before, and an older API answers it with a 404. After the upgrade the worker renders a
+display copy for every photograph backed up without one, and re-reads each one's EXIF date; the
+library's order changes as the real dates arrive.
 
 ## What it costs to run
 
@@ -152,6 +157,6 @@ repository secrets, and does nothing without them:
 - `COOLIFY_DEPLOY_WEBHOOKS` — one deploy webhook URL per line, one for each resource that runs this
   image. Each resource has its own under Webhooks.
 
-Coolify pulls the tag its resource names, so the resource must point at a moving tag such as `0.5`
-for this to change anything. A resource pinned to `0.5.1` stays on `0.5.1` however many times it is
+Coolify pulls the tag its resource names, so the resource must point at a moving tag such as `0.6`
+for this to change anything. A resource pinned to `0.6.0` stays on `0.6.0` however many times it is
 told to deploy.
