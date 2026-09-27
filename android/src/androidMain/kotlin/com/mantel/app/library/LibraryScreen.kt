@@ -81,57 +81,63 @@ fun LibraryScreen(
             .fillMaxSize()
             .background(Tokens.Colour.surface)
             .safeDrawingPadding()
-            .nestedScroll(pull)
-            .padding(horizontal = 24.dp),
+            .nestedScroll(pull),
         verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
     ) {
-        Spacer(Modifier.height(Tokens.Space.titleY))
-        if (state.pickingFor != null) {
-            Body("Back", style = captionStyle, modifier = Modifier.pressable { model.back() })
-            Title("Library")
-        } else {
-            PeerSwitch(onAlbums = model::openAlbums, onLibrary = {}, current = Peer.LIBRARY)
-        }
-        PullToRefresh(refreshing = state.refreshing, pull = pull.fraction)
-        Body(
-            if (state.totalItems == 1L) "1 item" else "${state.totalItems} items",
-            style = captionStyle,
-        )
-
-        // The phone's backup has no screen of its own, so it reports here, where its results land.
-        backup?.let { status ->
-            Card {
-                if (status.failed != null) {
-                    Body(status.failed, style = failStyle)
-                    Body(
-                        "Nothing was lost. What did not arrive is still on this phone and will be offered again.",
-                        style = captionStyle,
-                    )
-                    Button(text = "Try the backup again", onClick = model::retryBackup, quiet = true)
-                } else {
-                    Body("Backing up ${status.index + 1} of ${status.count}", style = captionStyle)
-                    UploadProgress(status.filename, status.doneBytes, status.totalBytes)
-                }
+        // Everything but the grid sits on the page margin. The grid runs to the screen's edges:
+        // photographs are the page, and a margin round them frames a grid of frames.
+        Column(
+            Modifier.padding(horizontal = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
+        ) {
+            Spacer(Modifier.height(Tokens.Space.titleY))
+            if (state.pickingFor != null) {
+                Body("Back", style = captionStyle, modifier = Modifier.pressable { model.back() })
+                Title("Library")
+            } else {
+                PeerSwitch(onAlbums = model::openAlbums, onLibrary = {}, current = Peer.LIBRARY)
             }
-        }
-
-        if (state.error != null) {
-            Card {
-                Body(state.error, style = failStyle)
-                if (state.retryable) Button(text = "Try again", onClick = model::retry, quiet = true)
-            }
-        }
-
-        if (state.items.isEmpty() && !state.busy && state.error == null) {
+            PullToRefresh(refreshing = state.refreshing, pull = pull.fraction)
             Body(
-                "Nothing here yet. Everything uploaded, from this phone or from a browser, arrives here.",
+                if (state.totalItems == 1L) "1 item" else "${state.totalItems} items",
                 style = captionStyle,
             )
+
+            // The phone's backup has no screen of its own, so it reports here, where its results land.
+            backup?.let { status ->
+                Card {
+                    if (status.failed != null) {
+                        Body(status.failed, style = failStyle)
+                        Body(
+                            "Nothing was lost. What did not arrive is still on this phone and will be offered again.",
+                            style = captionStyle,
+                        )
+                        Button(text = "Try the backup again", onClick = model::retryBackup, quiet = true)
+                    } else {
+                        Body("Backing up ${status.index + 1} of ${status.count}", style = captionStyle)
+                        UploadProgress(status.filename, status.doneBytes, status.totalBytes)
+                    }
+                }
+            }
+
+            if (state.error != null) {
+                Card {
+                    Body(state.error, style = failStyle)
+                    if (state.retryable) Button(text = "Try again", onClick = model::retry, quiet = true)
+                }
+            }
+
+            if (state.items.isEmpty() && !state.busy && state.error == null) {
+                Body(
+                    "Nothing here yet. Everything uploaded, from this phone or from a browser, arrives here.",
+                    style = captionStyle,
+                )
+            }
         }
 
         LazyVerticalGrid(
             state = grid,
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(4),
             modifier = Modifier.fillMaxWidth().weight(1f),
             horizontalArrangement = Arrangement.spacedBy(Tokens.Space.gutterTight),
             verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutterTight),
@@ -146,7 +152,7 @@ fun LibraryScreen(
         }
 
         if (state.selected.isNotEmpty()) {
-            Card {
+            Card(Modifier.padding(horizontal = 24.dp)) {
                 Body("${state.selected.size} selected", style = captionStyle)
                 if (state.addingTo != null) {
                     Body("Which album?", style = captionStyle)

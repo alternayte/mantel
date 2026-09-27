@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -43,11 +44,12 @@ fun ItemTile(
     isSelected: Boolean = false,
 ) {
     // The border marks a change of state, so it interpolates rather than switching (DESIGN.md).
+    // At rest there is none: a frame round every photograph is a grid of frames, not of photographs.
     val edge =
         stateColour(
             when {
                 isSelected || isCover -> Tokens.Colour.ink
-                else -> Tokens.Colour.surfaceLift
+                else -> Color.Transparent
             },
             "tile:${item.id}",
         )

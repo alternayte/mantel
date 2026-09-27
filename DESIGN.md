@@ -121,6 +121,18 @@ carried by the typeface and the spacing rather than by a licence.
 Backup is not a third place. It is a switch and two constraints, opened once, and it stays a text
 link at the foot of the albums screen.
 
+## The library grid
+
+Gauntlet run C (`site/references/run-c.md`) measured the phone's library against Darkroom's. The grid
+runs to the screen's edges, four columns, `gutter-tight` between tiles, and a tile has no frame at
+rest. A margin round the grid and a frame round each tile made a grid of frames rather than of
+photographs; removing both closed the gap to the reference from 17 points to 14. Selection is the
+only frame, in `ink`, and it interpolates on the change (`motion.fast`).
+
+The rest of the app's look is open. Run C stopped after two rounds because its total did not
+improve, and the questions every critic raised — a title per screen, flat rows against cards, an
+accent colour, a tinted surface — are listed in the run's record, not decided here.
+
 ## The one control the viewer has
 
 Run A froze a grid with no interface in it, and M8 added the download. It sits *after* the

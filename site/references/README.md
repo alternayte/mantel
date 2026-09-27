@@ -14,6 +14,7 @@ variant is judged on the same content.
 | `album/` | Thirteen CC0 photographs and one clip. The fixture album |
 | `album.json` | Provenance for every photograph |
 | `output.md` | What a run hands over: tokens, generated stylesheet, rationale, component inventory |
+| `run-c.md` | Run C. The Android app against Halide, Darkroom, Flighty and Things |
 
 ## How a run uses this
 
