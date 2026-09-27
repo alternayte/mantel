@@ -3,7 +3,10 @@ package com.mantel.app.timeline
 import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
+import android.database.ContentObserver
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
 import androidx.work.Constraints
@@ -13,6 +16,9 @@ import androidx.work.WorkManager
 import com.mantel.app.media.DeviceMedia
 import com.mantel.app.media.SyncSettings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
@@ -30,6 +36,8 @@ data class RollPhoto(
     val durationMs: Long? = null,
     /** Its SHA-256, if the index holds one for the file as it is now. */
     val hash: String? = null,
+    /** When it arrived on the phone, in epoch seconds: what the backup's watermark is measured in. */
+    val added: Long = 0,
 )
 
 /**
@@ -45,6 +53,9 @@ interface PhoneMedia {
 
     /** Hashes what the index lacks, the next time the phone is charging. */
     fun hashWhenCharging()
+
+    /** Fires when the camera roll changes: a photograph taken, a file arriving. */
+    fun changes(): Flow<Unit>
 }
 
 class DevicePhoneMedia(private val context: Context) : PhoneMedia {
@@ -71,6 +82,20 @@ class DevicePhoneMedia(private val context: Context) : PhoneMedia {
         }
 
     override fun hashWhenCharging() = HashWorker.enqueue(context)
+
+    override fun changes(): Flow<Unit> =
+        callbackFlow {
+            val observer =
+                object : ContentObserver(Handler(Looper.getMainLooper())) {
+                    override fun onChange(selfChange: Boolean) {
+                        trySend(Unit)
+                    }
+                }
+            val resolver = context.contentResolver
+            resolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
+            resolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
+            awaitClose { resolver.unregisterContentObserver(observer) }
+        }
 }
 
 object CameraRoll {
@@ -135,6 +160,7 @@ object CameraRoll {
                                 width = cursor.getInt(width),
                                 height = cursor.getInt(height),
                                 durationMs = if (video) cursor.getLong(duration) else null,
+                                added = cursor.getLong(added),
                             )
                     }
                 }

@@ -71,6 +71,11 @@ Media backed up this way lands in the library with a thumbnail and a 1600 px dis
 can open it after it has left the phone. The AVIF and the transcoded video a recipient's browser
 needs are rendered when it first joins an album.
 
+A new photograph starts a backup within about a minute, on the network and power you chose; the
+six-hourly sweep stays as a safety net. Beside the avatar on Photos, one line says what the backup is
+doing now: backing up N of M, waiting for wi-fi, waiting to charge, library full, files too large,
+N to back up, or up to date. Tap it to open the backup settings.
+
 To show a photograph once, the app keeps an index on the phone of which photograph has which
 content hash. A photograph the backup sends is hashed as it goes. Photographs on the phone from
 before are hashed in the background only while the phone is charging, and again only if the file

@@ -56,7 +56,7 @@ class UploadWorker(
 
         val api = MantelApi(serverUrl, session)
         try {
-            setForeground(foregroundInfo("Uploading", 0, 0))
+            inForeground(foregroundInfo("Uploading", 0, 0))
             var batch = batches.load(batchId) ?: return Result.failure()
             // A file left out as too large has no item id and never will; it is not waiting to be
             // declared, and counting it would declare the batch again on every retry.
@@ -95,7 +95,7 @@ class UploadWorker(
         } catch (e: ApiException) {
             // The server refusing is not a network blip: retrying the same bytes gets the same
             // answer, so the batch stays on disk and the failure is reported as it is.
-            return Result.failure(workDataOf(ERROR to e.message))
+            return Result.failure(workDataOf(ERROR to e.message, ERROR_CODE to e.code))
         } catch (e: java.io.IOException) {
             return if (runAttemptCount < MAX_ATTEMPTS) {
                 Result.retry()
@@ -215,7 +215,22 @@ class UploadWorker(
                 PROGRESS_COUNT to batch.items.size,
             ),
         )
-        setForeground(foregroundInfo(filename, batch.doneBytes, batch.totalBytes))
+        inForeground(foregroundInfo(filename, batch.doneBytes, batch.totalBytes))
+    }
+
+    /**
+     * Runs in the foreground when the system allows it. From Android 12 a backup started in the
+     * background — by a new photograph, or by the six-hourly sweep — may not start a foreground
+     * service, and asking threw and failed the batch. It uploads as ordinary background work instead;
+     * a batch the system stops is offered again, and its parts resume where they were.
+     */
+    private suspend fun inForeground(info: ForegroundInfo) {
+        try {
+            setForeground(info)
+        } catch (refused: IllegalStateException) {
+            // ForegroundServiceStartNotAllowedException is an IllegalStateException, and it is the
+            // only one setForeground throws.
+        }
     }
 
     private fun foregroundInfo(
@@ -252,6 +267,9 @@ class UploadWorker(
         /** The files a finished batch left out as too large for the server, one per line. */
         const val TOO_LARGE = "tooLarge"
         const val ERROR = "error"
+
+        /** The server's error code, when the server refused: what the backup's status line reads. */
+        const val ERROR_CODE = "errorCode"
         const val PROGRESS_DONE = "done"
         const val PROGRESS_TOTAL = "total"
         const val PROGRESS_FILE = "file"

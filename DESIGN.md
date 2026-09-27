@@ -120,6 +120,11 @@ bottom of the stack; a screen you visit from one pushes over it and hides the ba
 Account, storage, backup, the trash and sign-out are behind the avatar at the top of Photos. They are
 visited, not lived in, so they are one screen away rather than a section.
 
+Beside the avatar, one line of `type.caption` names the one thing true about the backup now:
+backing up N of M, waiting for wi-fi, waiting to charge, library full, N files too large, N to back
+up, or up to date. It is the accent while something moves and `muted` otherwise, and it opens the
+backup settings. A backup that says nothing reads as a backup that is broken.
+
 ## The timeline
 
 Photos is one grid of the phone's photographs and the library together, newest taken first, under a

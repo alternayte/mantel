@@ -17,7 +17,7 @@ sealed interface UploadReport {
         val count: Int,
     ) : UploadReport
 
-    data class Failed(val message: String) : UploadReport
+    data class Failed(val message: String, val code: String? = null) : UploadReport
 
     /**
      * A batch finished. The album has items it did not have before, so it is worth re-reading.
@@ -78,7 +78,10 @@ class WorkManagerUploads(private val context: Context) : Uploads {
         }
         val failed = infos.firstOrNull { it.state == WorkInfo.State.FAILED }
         if (failed != null) {
-            return UploadReport.Failed(failed.outputData.getString(UploadWorker.ERROR) ?: "The upload failed")
+            return UploadReport.Failed(
+                failed.outputData.getString(UploadWorker.ERROR) ?: "The upload failed",
+                failed.outputData.getString(UploadWorker.ERROR_CODE),
+            )
         }
         if (!infos.all { it.state.isFinished }) return null
         val tooLarge =

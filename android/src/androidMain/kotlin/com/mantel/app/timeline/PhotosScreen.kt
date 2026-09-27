@@ -82,7 +82,6 @@ import com.mantel.app.design.ListRow
 import com.mantel.app.design.PullToRefresh
 import com.mantel.app.design.ScreenHeader
 import com.mantel.app.design.Tokens
-import com.mantel.app.design.UploadProgress
 import com.mantel.app.design.bodyStyle
 import com.mantel.app.design.captionStyle
 import com.mantel.app.design.failStyle
@@ -143,6 +142,20 @@ private fun PhotosBody(
         if (index >= 0 && !visible) grid.scrollToItem(index)
     }
     val backup by model.backupStatus.collectAsState()
+    val line by model.backupLine.collectAsState()
+
+    // A lazy grid holds its place by the first cell's key, so a photograph taken now would arrive
+    // above the top of the screen. When the grid was at the top — its old first cell is still the one
+    // showing, flush with the top — it moves to the new top and shows it.
+    val cellsNow = state.timeline.cells
+    var previousFirst by remember { mutableStateOf(cellsNow.firstOrNull()?.key) }
+    LaunchedEffect(cellsNow.firstOrNull()?.key) {
+        val showing = cellsNow.getOrNull(grid.firstVisibleItemIndex)?.key
+        if (previousFirst != null && showing == previousFirst && grid.firstVisibleItemScrollOffset == 0) {
+            grid.scrollToItem(0)
+        }
+        previousFirst = cellsNow.firstOrNull()?.key
+    }
 
     // The next page of the library is asked for before the grid runs out of what it has.
     val cells = state.timeline.cells
@@ -165,6 +178,19 @@ private fun PhotosBody(
             SelectionHeader(state, model)
         } else {
             ScreenHeader("Photos") {
+                // The one thing true about the backup now, beside the avatar. Silence reads as failure.
+                line?.let { now ->
+                    BasicText(
+                        now.text,
+                        style = captionStyle.copy(color = if (now.active) Tokens.Colour.accent else Tokens.Colour.muted),
+                        maxLines = 1,
+                        modifier =
+                            Modifier
+                                .pressable(onClick = model::openSync)
+                                .padding(horizontal = 8.dp, vertical = 12.dp)
+                                .semantics { contentDescription = "Backup: ${now.text}" },
+                    )
+                }
                 IconButton(Icons.CircleUserRound, "Account", model::openAccount)
             }
         }
@@ -178,15 +204,10 @@ private fun PhotosBody(
             Modifier.padding(horizontal = Tokens.Space.page),
             verticalArrangement = Arrangement.spacedBy(Tokens.Space.gutter),
         ) {
-            // The phone's backup reports here, where its results land, until it has a line of its own.
-            backup?.let { status ->
-                if (status.failed != null) {
-                    Body(status.failed, style = failStyle)
-                    Button(text = "Try the backup again", onClick = model::retryBackup, quiet = true)
-                } else {
-                    Body("Backing up ${status.index + 1} of ${status.count}", style = captionStyle)
-                    UploadProgress(status.filename, status.doneBytes, status.totalBytes)
-                }
+            // The line beside the avatar says the backup failed; this says why, and offers the retry.
+            backup?.failed?.let { failure ->
+                Body(failure, style = failStyle)
+                Button(text = "Try the backup again", onClick = model::retryBackup, quiet = true)
             }
             state.note?.let { Body(it, style = captionStyle) }
             if (state.error != null) {

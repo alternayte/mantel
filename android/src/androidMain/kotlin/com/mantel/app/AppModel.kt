@@ -16,12 +16,14 @@ import com.mantel.app.auth.Pkce
 import com.mantel.app.auth.Settings
 import com.mantel.app.auth.StoredSettings
 import com.mantel.app.media.Backup
+import com.mantel.app.media.BackupLine
 import com.mantel.app.media.DeviceMedia
 import com.mantel.app.media.MediaFolder
 import com.mantel.app.media.PhoneBackup
 import com.mantel.app.media.UploadReport
 import com.mantel.app.media.Uploads
 import com.mantel.app.media.WorkManagerUploads
+import com.mantel.app.media.backupLine
 import com.mantel.app.timeline.DevicePhoneMedia
 import com.mantel.app.timeline.PhoneMedia
 import com.mantel.app.timeline.RollPhoto
@@ -37,6 +39,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -222,6 +226,8 @@ data class UploadStatus(
     val index: Int,
     val count: Int,
     val failed: String? = null,
+    /** The server's code for the failure, when it refused: `quota_exceeded` is a full library. */
+    val failedCode: String? = null,
 )
 
 /** What the screen asks the outside world to do, which only the activity can do. */
@@ -308,6 +314,15 @@ class AppModel(
     private val _backupStatus = MutableStateFlow<UploadStatus?>(null)
     val backupStatus: StateFlow<UploadStatus?> = _backupStatus
 
+    /** The phone's photographs as last read, for the backup's line to count what it has not sent. */
+    private val rollNow = MutableStateFlow<List<RollPhoto>>(emptyList())
+
+    /** The line beside the avatar: the one thing true about the backup now. */
+    private val _backupLine = MutableStateFlow<BackupLine?>(null)
+    val backupLine: StateFlow<BackupLine?> = _backupLine
+
+    private var lineWatch: Job? = null
+
     /** Whether a back gesture has somewhere to go. A section is the bottom of the stack. */
     private val _canGoBack = MutableStateFlow(false)
     val canGoBack: StateFlow<Boolean> = _canGoBack
@@ -337,6 +352,23 @@ class AppModel(
 
     fun resumed(value: Boolean) {
         resumed.value = value
+        // Back from the camera: the photograph just taken belongs on the timeline now, before any
+        // backup has seen it.
+        if (value) rereadRoll()
+    }
+
+    /** The phone's photographs, read again after the camera roll changed. */
+    private fun rereadRoll() {
+        if (!phone.hasAccess()) return
+        scope.launch {
+            val roll = phone.roll()
+            held.roll = roll
+            rollNow.value = roll
+            if (_screen.value is Screen.Photos) {
+                _screen.update<Screen.Photos> { it.copy(roll = roll, phoneAccess = true) }
+                rebuildTimeline()
+            }
+        }
     }
 
     // --- navigation ---------------------------------------------------------------------------
@@ -551,7 +583,10 @@ class AppModel(
         scope.launch {
             account = null
             backupWatch?.cancel()
+            lineWatch?.cancel()
             _backupStatus.value = null
+            _backupLine.value = null
+            rollNow.value = emptyList()
             held.albums = null
             held.library = null
             held.shared = null
@@ -770,6 +805,7 @@ class AppModel(
             if (access) {
                 val roll = phone.roll()
                 held.roll = roll
+                rollNow.value = roll
                 _screen.update<Screen.Photos> { it.copy(roll = roll, phoneAccess = true) }
                 rebuildTimeline()
                 if (roll.any { it.hash == null }) phone.hashWhenCharging()
@@ -1548,6 +1584,18 @@ class AppModel(
     }
 
     private fun watchBackup() {
+        // Existing installs armed nothing new when they updated; this arms the trigger for a new
+        // photograph, and re-reads the schedule, once per session.
+        scope.launch { backup.reschedule() }
+        lineWatch?.cancel()
+        lineWatch =
+            scope.launch {
+                // A photograph taken while the app is open appears at once, and the line counts it.
+                launch { phone.changes().debounce(ROLL_SETTLES_MS).collect { rereadRoll() } }
+                combine(backup.state, backup.conditions, _backupStatus, rollNow) { state, conditions, upload, roll ->
+                    backupLine(state, conditions, upload, waiting = roll.count { it.added > state.watermark })
+                }.collect { _backupLine.value = it }
+            }
         backupWatch?.cancel()
         backupWatch =
             scope.launch {
@@ -1562,7 +1610,8 @@ class AppModel(
                                     index = report.index,
                                     count = report.count,
                                 )
-                        is UploadReport.Failed -> _backupStatus.value = UploadStatus("", 0, 0, 0, 0, report.message)
+                        is UploadReport.Failed ->
+                            _backupStatus.value = UploadStatus("", 0, 0, 0, 0, report.message, report.code)
                         is UploadReport.Finished -> {
                             _backupStatus.value = null
                             held.library = null
@@ -1740,6 +1789,9 @@ class AppModel(
 
         /** How close to the end of what is loaded a swipe in the viewer asks for the next page. */
         const val VIEWER_LOOKAHEAD = 10
+
+        /** A photograph arrives as several MediaStore changes in a burst; the roll is read once after them. */
+        const val ROLL_SETTLES_MS = 500L
     }
 }
 

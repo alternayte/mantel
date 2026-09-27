@@ -68,6 +68,8 @@ class FakeSettings(
 class FakeBackup : Backup {
     override val state = MutableStateFlow(SyncState())
 
+    override val conditions = MutableStateFlow(com.mantel.app.media.Conditions(unmetered = true, charging = true))
+
     override suspend fun setEnabled(enabled: Boolean) = Unit
 
     override suspend fun setFolders(folders: Set<String>) = Unit
@@ -108,6 +110,8 @@ class FakePhoneMedia(
     override fun hashWhenCharging() {
         hashingAskedFor++
     }
+
+    override fun changes() = kotlinx.coroutines.flow.emptyFlow<Unit>()
 }
 
 /**
