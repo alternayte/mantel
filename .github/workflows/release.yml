@@ -142,7 +142,9 @@ jobs:
           set -euo pipefail
           echo "$HOOKS" | while read -r hook; do
             [ -n "$hook" ] || continue
-            code=$(curl -sS -o /tmp/body -w '%{http_code}' -X GET "$hook" -H "Authorization: Bearer $TOKEN")
+            # Coolify's deploy endpoint takes POST. A GET is answered "This endpoint has changed to a
+            # POST request" and deploys nothing; the 0.6.0 release found it when deploying by hand.
+            code=$(curl -sS -o /tmp/body -w '%{http_code}' -X POST "$hook" -H "Authorization: Bearer $TOKEN")
             echo "$hook -> $code"
             cat /tmp/body
             echo
