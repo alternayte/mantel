@@ -80,46 +80,106 @@ the source, and every one is styled from the tokens above rather than from a lib
 The creator surface is one shade lighter than the viewer: the viewer is a gallery at night, the
 creator is a desk with a lamp on it. Both read the same tokens.
 
-## The creator's motion
+## The phone app
 
-The viewer earns its stillness: it is a page of photographs and nothing moves unless a person asks.
-The creator is a tool, and a tool that gives no answer to a touch reads as broken rather than calm.
-So the creator has motion, and these four uses are all of it.
+Gauntlet run C (`site/references/run-c.md`) judged the Android app against Halide, Darkroom, Flighty
+and Things, with Google Photos and stock Material 3 as the anti-references: Google Photos' function
+without its look. The run stopped after two rounds, and on 2026-09-27 the owner took the direction
+its critics named in every round. It is the phone app's alone; the recipient's viewer and the web
+creator do not change.
 
-**One rule: motion marks a change of state, and never decorates a static one.** No entrance
-animation on a list, no staggered grid, no pulsing placeholder, no spinner where a real answer is
-about to arrive.
+**One large title per screen.** `type.screen-title`, bold, at the top of every screen, so a person
+always knows where they are. A screen visited from a section has a back chevron above its title. The
+small tracked capitals stay for the viewer's album title and the app's opening frame.
+
+**Flat rows, not cards.** A list is rows on the page with a hairline between them: the thing on the
+first line in `type.row`, its state on the second in `muted`, a chevron when the row opens something.
+A list of cards was a list of boxes, and it was the list's largest gap to the references. A card is
+kept for a form and for a message about the whole screen. A setting that is on or off is a row with
+a circle at its end: filled in the accent when on, empty and `muted` when off.
+
+**One accent, Halide's yellow.** `colour.accent`, on structure and state only: the current section, a
+selection, what is running. Never on a photograph and never for failure, which keeps `colour.fail`.
+
+**Icons, from Lucide, at a stroke of 1.5.** The first icons in Mantel. The navigation needs three,
+and a word alone at the foot of the screen is a menu, not a bar. They are generated as Compose source
+from the SVGs in `design/icons/lucide/` by `just icons`, at `icon.stroke`: Lucide draws at 2, and 1.5
+sits with the system type rather than over it. The app ships with R8 off, so a library of icons would
+ship whole; this ships the dozen it draws. An icon that is pressable has a 48dp target and a label
+for a screen reader.
+
+**The surface stays near-black.** Two critics asked for a cool tint. The viewer's reason for
+`#0c0c0d` holds for a phone full of photographs.
+
+## Photos, Albums and Shared
+
+The app has three sections in a bar at the foot of the screen, each an icon with its word under it:
+Photos, where the app opens; Albums; and Shared, every live share link across every album, with what
+it opens, when it stops and a revoke. Choosing a section replaces the one you were on and is the
+bottom of the stack; a screen you visit from one pushes over it and hides the bar, and back returns.
+
+Account, storage, backup, the trash and sign-out are behind the avatar at the top of Photos. They are
+visited, not lived in, so they are one screen away rather than a section.
+
+Beside the avatar, one line of `type.caption` names the one thing true about the backup now:
+backing up N of M, waiting for wi-fi, waiting to charge, library full, N files too large, N to back
+up, or up to date. It is the accent while something moves and `muted` otherwise, and it opens the
+backup settings. A backup that says nothing reads as a backup that is broken.
+
+## The timeline
+
+Photos is one grid of the phone's photographs and the library together, newest taken first, under a
+heading for each day in `type.row`. It runs to the screen's edges like the library grid below. Each
+tile carries a badge in its top corner, a 14dp glyph on a dark disc so it reads on a bright
+photograph: a cloud with a tick for a photograph the library holds, a cloud with an arrow for one
+only on the phone so far. A video adds a play glyph and its length at the foot.
+
+A selection is the accent: a frame round each selected tile, a filled circle in its corner, and the
+count in the title's place, with Share, Add to album and Delete where the screen's actions were.
+Pinch moves between three densities, three, four and six to a row. A handle on the right edge,
+`muted` at rest and the accent while held, scrolls by month and names the month it is on.
+
+## The viewer
+
+A photograph opens full screen on black, grown from its tile: the tile and the page share a key and
+Compose moves the one into the other, with the grid fading beneath. It fits the screen and is never
+cropped. Close sits at the top; Share, Add to album, Info and Delete at the foot, and a tap on the
+photograph hides them and shows them again. Swipe moves on; swipe down closes, dimming the black as
+the photograph falls away; it shrinks back into its tile. Info is a card at the foot in
+`surface-lift`. A video's scrubber is a hairline filled with the accent.
+
+An album opens its items in the same viewer, in the album's order, with the album's own controls:
+Caption, Cover, Info, and Remove from this album. What is done to one item in an album is done over
+the photograph, not in a card over the grid. The album's grid runs to the edges like the library's,
+and its title carries Add photos, Add from the library and Share.
+
+On Photos, a tile carries no badge until the library has answered once; before then, "not backed
+up" is a guess. A photograph on the phone whose library copy is in the trash carries the trash
+glyph.
+
+## The app's motion
+
+The viewer earns its stillness. The app is a tool, and a tool that gives no answer to a touch reads
+as broken rather than calm. **Motion marks a change of state, and never decorates a static one.**
 
 | Use | What moves | Duration |
 |---|---|---|
 | A press | The target goes to `surface-lift`, released on lift | `motion.fast` |
-| A screen replaces another | The new screen fades up, the old fades out, no slide | `motion.medium` |
+| A screen replaces another | The new screen fades up, the old fades out | `motion.medium` |
 | A thumbnail arrives | The image crossfades from the tile's `surface-lift` ground | `motion.medium` |
-| A tile changes state | The selection border and the state colour interpolate | `motion.fast` |
+| A state changes | The selection frame, the current section's accent | `motion.fast` |
+| A photograph opens or closes | It grows from its tile to the screen, and back | `motion.medium` |
 
-**A press is the one that matters.** Before this, a tap on a button did nothing at all until the
-next screen appeared, so a slow network read as a dead application. Everything else here is smaller.
-
-**No slide.** A slide claims a spatial model — this screen is to the right of that one — and the
-creator's screens have no such arrangement. A crossfade claims only that one thing replaced another,
-which is what happened.
-
-**Nothing waits on the network to appear.** A screen draws the data it already holds and refreshes
+**Nothing waits on the network to appear.** A screen draws what the app already holds and refreshes
 underneath it. An animation over an empty screen animates the emptiness.
 
-## Albums and the library are peers
+## The library grid
 
-The creator has two places it lives — the albums and the library — and one place it visits, an
-album. The two peers replace each other; an album pushes over whichever peer you were on, and going
-back returns you there.
-
-The control is `ALBUMS · LIBRARY` in the title style at the top of both, the current one in `ink`
-and the other in `muted`. It is not a bar and it is not tabs. There are no icons anywhere in Mantel,
-and two glyphs invented for these two words would be the first — the same reason the identity is
-carried by the typeface and the spacing rather than by a licence.
-
-Backup is not a third place. It is a switch and two constraints, opened once, and it stays a text
-link at the foot of the albums screen.
+Gauntlet run C (`site/references/run-c.md`) measured the phone's library against Darkroom's. The grid
+runs to the screen's edges, four columns, `gutter-tight` between tiles, and a tile has no frame at
+rest. A margin round the grid and a frame round each tile made a grid of frames rather than of
+photographs; removing both closed the gap to the reference from 17 points to 14. Selection is the
+only frame, in `ink`, and it interpolates on the change (`motion.fast`).
 
 ## The one control the viewer has
 

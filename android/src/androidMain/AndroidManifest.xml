@@ -10,8 +10,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Backup reads the device's media. It is requested when somebody turns backup on, and never
-         otherwise: picking photographs by hand uses the system picker, which needs no permission. -->
+    <!-- The device's media: backup reads it, and the timeline shows it beside the library. It is
+         requested when somebody turns backup on or asks Photos to show the phone's photographs, and
+         never otherwise: picking photographs by hand uses the system picker, which needs none. -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission
@@ -47,6 +48,17 @@
                 <data android:scheme="mantel" android:host="auth" />
             </intent-filter>
         </activity>
+        <!-- Library photographs, fetched to share through the system sheet. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/shared_files" />
+        </provider>
+
         <!-- WorkManager declares this service; the type it runs as is ours to state. -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

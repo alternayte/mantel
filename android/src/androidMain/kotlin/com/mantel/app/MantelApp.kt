@@ -6,6 +6,8 @@ import coil3.PlatformContext
 import coil3.SingletonImageLoader
 import coil3.network.ConnectivityChecker
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import com.mantel.app.timeline.RollThumbFetcher
+import com.mantel.app.timeline.RollThumbKeyer
 
 /**
  * The application, for one reason: Coil has to be told how to reach the network.
@@ -27,6 +29,9 @@ class MantelApp : Application(), SingletonImageLoader.Factory {
         ImageLoader.Builder(context)
             .components {
                 add(OkHttpNetworkFetcherFactory(connectivityChecker = { ConnectivityChecker { true } }))
+                // The timeline's photographs on the phone, from MediaStore's own thumbnails.
+                add(RollThumbFetcher.Factory(this@MantelApp))
+                add(RollThumbKeyer())
             }
             .build()
 }

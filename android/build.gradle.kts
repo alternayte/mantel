@@ -5,6 +5,7 @@ plugins {
     alias(libs.plugins.compose.multiplatform)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ktlint)
+    alias(libs.plugins.ksp)
 }
 
 // One target. Compose Multiplatform is here because SDD.md 10 says so and because the alternative
@@ -28,6 +29,16 @@ kotlin {
             implementation(libs.androidx.work)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.okhttp)
+            // The on-device index of the camera roll: which photograph has which hash, and which
+            // library item it became. It outlives the process, which is the whole point of it.
+            implementation(libs.room.runtime)
+            implementation(libs.room.ktx)
+            // The viewer. A fifty-megapixel original decoded whole is a crash; Telephoto draws the
+            // zoom from tiles of it. A player is its own problem, and Media3 is the one Android has.
+            implementation(libs.telephoto.zoomable.image.coil3)
+            implementation(libs.telephoto.flick)
+            implementation(libs.media3.exoplayer)
+            implementation(libs.media3.ui.compose)
 
             // @Preview renders a composable in the IDE without a device. The annotation ships; the
             // renderer that reads it is a debug-only dependency.
@@ -41,6 +52,13 @@ kotlin {
 
 dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
+    add("kspAndroid", libs.room.compiler)
+}
+
+// The index's schema is written down, so a change to it is a migration somebody wrote rather than a
+// table Room silently dropped on the next launch.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 /**
@@ -96,5 +114,13 @@ android {
             isMinifyEnabled = false
             signingConfig = signingConfigs.findByName("release")
         }
+    }
+}
+
+// Room writes its implementation into build/generated. It is not ours to format, and ktlint would
+// fail the build over indentation nobody here chose.
+ktlint {
+    filter {
+        exclude { it.file.path.contains("/build/generated/") }
     }
 }

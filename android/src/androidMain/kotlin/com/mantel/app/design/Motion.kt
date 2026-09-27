@@ -11,7 +11,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -92,44 +91,6 @@ fun stateColour(
 }
 
 /**
- * The switch between the two peers (DESIGN.md). It is the title, in the title's own type, and it is
- * not a bar: there are no icons anywhere in Mantel and these two words do not need the first.
- */
-@Composable
-fun PeerSwitch(
-    onAlbums: () -> Unit,
-    onLibrary: () -> Unit,
-    current: Peer,
-    modifier: Modifier = Modifier,
-) {
-    Row(
-        modifier,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        PeerWord("Albums", current == Peer.ALBUMS, onAlbums)
-        BasicText("·", style = titleStyle)
-        PeerWord("Library", current == Peer.LIBRARY, onLibrary)
-    }
-}
-
-enum class Peer { ALBUMS, LIBRARY }
-
-@Composable
-private fun PeerWord(
-    text: String,
-    current: Boolean,
-    onClick: () -> Unit,
-) {
-    val colour = stateColour(if (current) Tokens.Colour.ink else Tokens.Colour.muted, "peer:$text")
-    BasicText(
-        text.uppercase(),
-        style = titleStyle.copy(color = colour),
-        modifier = Modifier.pressable(enabled = !current, onClick = onClick),
-    )
-}
-
-/**
  * Pull to refresh, in type rather than in a spinner.
  *
  * The app holds what it last read and refreshes underneath, so this exists for the person who
@@ -166,15 +127,13 @@ fun PullToRefresh(
 private const val PRESSED = 0.55f
 private const val PULL_HEIGHT = 28f
 
-@Preview(name = "Peer switch", widthDp = 360)
+@Preview(name = "Pull to refresh", widthDp = 360)
 @Composable
-private fun PeerSwitchPreview() =
+private fun PullPreview() =
     Column(
         Modifier.background(Tokens.Colour.surface).padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        PeerSwitch(onAlbums = {}, onLibrary = {}, current = Peer.ALBUMS)
-        PeerSwitch(onAlbums = {}, onLibrary = {}, current = Peer.LIBRARY)
         PullToRefresh(refreshing = false, pull = 0.4f)
         PullToRefresh(refreshing = false, pull = 1f)
         PullToRefresh(refreshing = true, pull = 1f)

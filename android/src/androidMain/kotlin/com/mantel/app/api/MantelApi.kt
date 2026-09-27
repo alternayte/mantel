@@ -208,8 +208,31 @@ class MantelApi(
         return client.get("$base/api/library$query") { authorize() }.require()
     }
 
-    suspend fun deleteFromLibrary(itemId: String) {
+    /** Delete is a move to the trash; the server keeps the item for 30 days. */
+    suspend fun moveToTrash(itemId: String) {
         client.delete("$base/api/library/$itemId") { authorize() }.require<Unit>()
+    }
+
+    /** The trash, newest deletion first, in the library's page shape. */
+    suspend fun trash(
+        after: String? = null,
+        limit: Int? = null,
+    ): LibraryPage {
+        val query =
+            listOfNotNull(after?.let { "after=$it" }, limit?.let { "limit=$it" })
+                .joinToString("&")
+                .let { if (it.isEmpty()) "" else "?$it" }
+        return client.get("$base/api/library/trash$query") { authorize() }.require()
+    }
+
+    /** Out of the trash, back into the library and into every album it was in. */
+    suspend fun restore(itemId: String) {
+        client.post("$base/api/library/$itemId/restore") { authorize() }.require<Unit>()
+    }
+
+    /** Removes an item from the trash now: its bytes, and the space they held. */
+    suspend fun removeFromTrash(itemId: String) {
+        client.delete("$base/api/library/trash/$itemId") { authorize() }.require<Unit>()
     }
 
     /** Selecting library media into an album. It costs no quota and no upload. */

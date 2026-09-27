@@ -99,6 +99,11 @@ object Samples {
             ),
         )
 
+    /** The live links, with the album each opens, as the Shared screen lists them. */
+    val shared by lazy {
+        links.filter { it.live }.map { com.mantel.app.SharedLink(it, albumId = "a1", albumTitle = "Cornwall, August") }
+    }
+
     val albums =
         listOf(
             AlbumSummary(

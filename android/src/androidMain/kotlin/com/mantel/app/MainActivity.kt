@@ -1,6 +1,7 @@
 package com.mantel.app
 
 import android.Manifest
+import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -18,19 +19,38 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.lifecycleScope
+import com.mantel.app.account.AccountScreen
 import com.mantel.app.album.AlbumScreen
 import com.mantel.app.album.AlbumsScreen
 import com.mantel.app.auth.SignInScreen
+import com.mantel.app.design.NavBar
 import com.mantel.app.design.Page
 import com.mantel.app.design.Title
 import com.mantel.app.design.Tokens
 import com.mantel.app.library.LibraryScreen
+import com.mantel.app.library.TrashScreen
 import com.mantel.app.media.DeviceMedia
 import com.mantel.app.media.SyncScreen
+import com.mantel.app.share.SharedScreen
+import com.mantel.app.timeline.PhotosScreen
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * One activity. Sign-in leaves the app for a browser and comes back through the deep link, and
@@ -67,6 +87,12 @@ class MainActivity : ComponentActivity() {
         model = AppModel(this, lifecycleScope)
 
         setContent {
+            // "Fully drawn" is the first frame with photographs on it, which is what opening the
+            // app is for: the cold-start budget is measured to this, not to an empty screen.
+            LaunchedEffect(Unit) {
+                model.screen.first { it is Screen.Photos && it.timeline.tiles.isNotEmpty() }
+                reportFullyDrawn()
+            }
             val screen by model.screen.collectAsState()
             val upload by model.upload.collectAsState()
             val effect by model.effects.collectAsState()
@@ -89,28 +115,48 @@ class MainActivity : ComponentActivity() {
                     share(pending.url)
                     model.effectHandled()
                 }
+                is Effect.ShareMedia -> {
+                    lifecycleScope.launch { shareMedia(pending) }
+                    model.effectHandled()
+                }
                 null -> Unit
             }
 
-            // One screen replaces another, and says only that: a crossfade, no slide, because
-            // these screens have no arrangement in space to imply (DESIGN.md).
-            AnimatedContent(
-                targetState = screen,
-                transitionSpec = {
-                    val spec = tween<Float>(Tokens.Motion.medium, easing = Tokens.Motion.ease)
-                    fadeIn(spec) togetherWith fadeOut(spec)
-                },
-                contentKey = { it.key() },
-                label = "screen",
-            ) { current ->
-                when (current) {
-                    is Screen.Starting -> Page { Title("Mantel") }
-                    is Screen.SignIn -> SignInScreen(current, model)
-                    is Screen.Albums -> AlbumsScreen(current, model)
-                    is Screen.Library -> LibraryScreen(current, model)
-                    is Screen.Sync -> SyncScreen(current, model)
-                    is Screen.Album -> AlbumScreen(current, upload, model)
+            // The navigation bar belongs to the three sections and to nothing visited from them.
+            val section = screen.section
+            Column(Modifier.fillMaxSize().background(Tokens.Colour.surface)) {
+                Box(
+                    Modifier
+                        .weight(1f)
+                        // The bar keeps clear of the system's own; the screen above it need not.
+                        .then(if (section != null) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier),
+                ) {
+                    // One screen replaces another, and says only that: a crossfade, no slide,
+                    // because these screens have no arrangement in space to imply (DESIGN.md).
+                    AnimatedContent(
+                        targetState = screen,
+                        transitionSpec = {
+                            val spec = tween<Float>(Tokens.Motion.medium, easing = Tokens.Motion.ease)
+                            fadeIn(spec) togetherWith fadeOut(spec)
+                        },
+                        contentKey = { it.key() },
+                        label = "screen",
+                    ) { current ->
+                        when (current) {
+                            is Screen.Starting -> Page { Title("Mantel") }
+                            is Screen.SignIn -> SignInScreen(current, model)
+                            is Screen.Albums -> AlbumsScreen(current, model)
+                            is Screen.Photos -> PhotosScreen(current, model)
+                            is Screen.Library -> LibraryScreen(current, model)
+                            is Screen.Shared -> SharedScreen(current, model)
+                            is Screen.Account -> AccountScreen(current, model)
+                            is Screen.Trash -> TrashScreen(current, model)
+                            is Screen.Sync -> SyncScreen(current, model)
+                            is Screen.Album -> AlbumScreen(current, upload, model)
+                        }
+                    }
                 }
+                if (section != null) NavBar(section, model::openSection)
             }
         }
 
@@ -152,6 +198,41 @@ class MainActivity : ComponentActivity() {
                 type = "text/plain"
                 putExtra(Intent.EXTRA_TEXT, url)
             }
+        startActivity(Intent.createChooser(send, null))
+    }
+
+    /**
+     * Photographs through the share sheet. A photograph on the phone is handed over as it is; one
+     * only in the library is fetched at display size into a scratch folder first, because another app can
+     * only be given a file, not a signed URL that expires in an hour.
+     */
+    private suspend fun shareMedia(media: Effect.ShareMedia) {
+        val fetched =
+            withContext(Dispatchers.IO) {
+                val folder =
+                    java.io.File(cacheDir, "shared").apply {
+                        deleteRecursively()
+                        mkdirs()
+                    }
+                media.remote.mapIndexedNotNull { index, url ->
+                    runCatching {
+                        val file = java.io.File(folder, "mantel-${index + 1}.webp")
+                        java.net.URL(url).openStream().use { input -> file.outputStream().use { input.copyTo(it) } }
+                        FileProvider.getUriForFile(this@MainActivity, "$packageName.files", file)
+                    }.getOrNull()
+                }
+            }
+        val uris = ArrayList(media.phone.map(Uri::parse) + fetched)
+        if (uris.isEmpty()) return
+        val send =
+            if (uris.size == 1) {
+                Intent(Intent.ACTION_SEND).putExtra(Intent.EXTRA_STREAM, uris.single())
+            } else {
+                Intent(Intent.ACTION_SEND_MULTIPLE).putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            }
+        send.type = "*/*"
+        send.clipData = ClipData.newRawUri(null, uris.first()).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
+        send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         startActivity(Intent.createChooser(send, null))
     }
 
@@ -200,7 +281,11 @@ private fun Screen.key(): String =
         is Screen.Starting -> "starting"
         is Screen.SignIn -> "sign-in"
         is Screen.Albums -> "albums"
+        is Screen.Photos -> "photos"
         is Screen.Library -> "library"
+        is Screen.Shared -> "shared"
+        is Screen.Account -> "account"
+        is Screen.Trash -> "trash"
         is Screen.Sync -> "sync"
         is Screen.Album -> "album:${album.id}"
     }

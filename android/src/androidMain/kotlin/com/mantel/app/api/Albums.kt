@@ -34,6 +34,15 @@ data class ItemView(
     val lastError: String? = null,
     val filename: String? = null,
     val thumbUrl: String? = null,
+    /** The 1600 px WebP, or a video's poster: what a photograph no longer on the phone opens at. */
+    val displayUrl: String? = null,
+    /** A video's original, which the viewer plays when the video is not on this phone. */
+    val originalUrl: String? = null,
+    /** When it was taken, as an ISO-8601 instant. */
+    val takenAt: String? = null,
+    val contentHash: String? = null,
+    /** Present while the item is in the trash. */
+    val trashedAt: String? = null,
 )
 
 @Serializable
@@ -122,7 +131,7 @@ enum class ItemStatus {
     UPLOADED,
     PROCESSING,
 
-    /** The library holds the original and a thumbnail. Nothing renders it for a viewer yet. */
+    /** The library holds the original, a thumbnail and a display WebP. Nothing renders it for a viewer yet. */
     BACKED_UP,
 
     /** Every derivative exists, so an album holding it can publish. */

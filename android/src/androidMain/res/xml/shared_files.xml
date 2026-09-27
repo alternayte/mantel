@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A library photograph shared from the timeline is fetched at display size into a scratch folder first,
+     and this is the one folder another app may be handed a file from. -->
+<paths>
+    <cache-path name="shared" path="shared/" />
+</paths>

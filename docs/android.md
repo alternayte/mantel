@@ -20,10 +20,26 @@ the only exception.
 
 - **Sign in** with a magic link or with GitHub, in your own browser rather than in the app. The app
   never sees your password and no page inside it asks for one.
-- **The library**: every photograph and video the account holds, newest first. An album is a
-  selection from it, so adding one to an album costs no upload and no storage.
-- **Albums**: make one, see what is in it, set a cover, caption an item, reorder by holding a
-  photograph and dragging it.
+- **Photos, Albums and Shared**, in a bar at the foot of the screen. The app opens on Photos.
+- **Photos**: one timeline of this phone's photographs and your library, grouped by the day each was
+  taken. A photograph shows the moment it is taken, marked as not yet backed up until it is, and a
+  photograph on the phone and in the library shows once. Showing the phone's photographs needs the
+  media permission, which Photos asks for only when you tap "Show this phone's photographs".
+- **The viewer**: a photograph opens full screen from its tile. Swipe to move on, pinch or double-tap
+  to zoom, swipe down to close; a video plays with a scrubber. A photograph on the phone opens from
+  the phone; one only in the library opens at display size. Info says when it was taken, its size,
+  and whether it is on the phone, in the library, or both. Share, Add to album and Delete are there
+  too, and Delete never removes anything from the phone.
+- **Selecting**: hold a photograph to start, drag to extend, tap a day's heading to take the whole
+  day. A selection can be shared, added to an album or a new one, or deleted. Pinch changes how many
+  photographs fit in a row, and the handle on the right edge scrolls by month.
+- **Shared**: every live share link across all your albums, what each opens, when it expires, and
+  a revoke.
+- **Account**, behind the avatar on Photos: the space you use, backup, the trash and sign-out.
+- **Trash**: a deleted photograph waits there for 30 days and can be restored, or removed at once.
+  Deleting in the app never removes anything from the phone.
+- **Albums**: make one, see what is in it, reorder by holding a photograph and dragging it. A tap
+  opens an item full screen, where you caption it, make it the cover, or take it out of the album.
 - **Upload** through the system photo picker, so the app sees the files you chose and nothing else.
   The upload runs in the background with a notification, and resumes where it stopped if it is
   interrupted. A file the library already holds is never sent twice: the app hashes it first and the
@@ -54,6 +70,17 @@ When it is on:
 Media backed up this way lands in the library with a thumbnail and a 1600 px display copy, so you
 can open it after it has left the phone. The AVIF and the transcoded video a recipient's browser
 needs are rendered when it first joins an album.
+
+A new photograph starts a backup within about a minute, on the network and power you chose; the
+six-hourly sweep stays as a safety net. Beside the avatar on Photos, one line says what the backup is
+doing now: backing up N of M, waiting for wi-fi, waiting to charge, library full, files too large,
+N to back up, or up to date. Tap it to open the backup settings.
+
+To show a photograph once, the app keeps an index on the phone of which photograph has which
+content hash. A photograph the backup sends is hashed as it goes. Photographs on the phone from
+before are hashed in the background only while the phone is charging, and again only if the file
+changes. Until a photograph is hashed, a library photograph of the same size taken at about the same
+time is treated as its copy.
 
 The library keeps whatever the camera produced, including formats this product cannot render. Those
 appear as a filename with no thumbnail and cannot be put in an album, because an album is what a

@@ -194,6 +194,11 @@ test:
 tokens:
     bun run scripts/tokens.ts
 
+# recipe: icons
+# Generate the Compose icons from design/icons/lucide/. `bun run design/icons/icons.ts add <name>` fetches another icon first.
+icons:
+    bun run design/icons/icons.ts
+
 # recipe: fmt
 # Format Kotlin.
 fmt:

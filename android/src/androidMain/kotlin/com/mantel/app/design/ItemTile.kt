@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -25,6 +26,7 @@ import coil3.request.crossfade
 import com.mantel.app.api.ItemStatus
 import com.mantel.app.api.ItemView
 import com.mantel.app.api.state
+import com.mantel.app.timeline.growsInto
 
 /**
  * One item in the creator's grid, in whatever state it is in.
@@ -41,13 +43,17 @@ fun ItemTile(
     modifier: Modifier = Modifier,
     isCover: Boolean = false,
     isSelected: Boolean = false,
+    /** The key this tile's photograph grows from into the viewer, when a viewer can open it. */
+    growKey: String? = null,
 ) {
     // The border marks a change of state, so it interpolates rather than switching (DESIGN.md).
+    // At rest there is none: a frame round every photograph is a grid of frames, not of photographs.
     val edge =
         stateColour(
             when {
-                isSelected || isCover -> Tokens.Colour.ink
-                else -> Tokens.Colour.surfaceLift
+                isSelected -> Tokens.Colour.accent
+                isCover -> Tokens.Colour.ink
+                else -> Color.Transparent
             },
             "tile:${item.id}",
         )
@@ -70,7 +76,7 @@ fun ItemTile(
                             .build(),
                     contentDescription = item.caption ?: item.filename,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(if (growKey != null) Modifier.growsInto(growKey) else Modifier),
                 )
             item.kind.equals("file", ignoreCase = true) ->
                 // Kept, not rendered. The name is all there is to show.

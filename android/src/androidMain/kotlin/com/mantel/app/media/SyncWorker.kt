@@ -1,10 +1,8 @@
 package com.mantel.app.media
 
 import android.content.Context
-import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -72,14 +70,15 @@ class SyncWorker(
             val manager = WorkManager.getInstance(context)
             if (!state.enabled) {
                 manager.cancelUniqueWork(NAME)
+                NewPhotoWorker.disarm(context)
                 return
             }
+            // A new photograph starts a backup within a minute; this sweep is the safety net. The
+            // settings may have changed what a waiting sweep is waiting for, so it is replaced.
+            NewPhotoWorker.arm(context)
+            NewPhotoWorker.sweep(context, state)
 
-            val constraints =
-                Constraints.Builder()
-                    .setRequiredNetworkType(if (state.unmeteredOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
-                    .setRequiresCharging(state.whileCharging)
-                    .build()
+            val constraints = NewPhotoWorker.chosen(state)
 
             manager.enqueueUniquePeriodicWork(
                 NAME,

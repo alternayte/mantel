@@ -20,6 +20,8 @@ import com.mantel.app.api.ApiException
 import com.mantel.app.api.MantelApi
 import com.mantel.app.api.PresignedPart
 import com.mantel.app.auth.StoredSettings
+import com.mantel.app.timeline.recordUpload
+import com.mantel.app.timeline.sha256Of
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.flow.first
@@ -54,7 +56,7 @@ class UploadWorker(
 
         val api = MantelApi(serverUrl, session)
         try {
-            setForeground(foregroundInfo("Uploading", 0, 0))
+            inForeground(foregroundInfo("Uploading", 0, 0))
             var batch = batches.load(batchId) ?: return Result.failure()
             // A file left out as too large has no item id and never will; it is not waiting to be
             // declared, and counting it would declare the batch again on every retry.
@@ -93,7 +95,7 @@ class UploadWorker(
         } catch (e: ApiException) {
             // The server refusing is not a network blip: retrying the same bytes gets the same
             // answer, so the batch stays on disk and the failure is reported as it is.
-            return Result.failure(workDataOf(ERROR to e.message))
+            return Result.failure(workDataOf(ERROR to e.message, ERROR_CODE to e.code))
         } catch (e: java.io.IOException) {
             return if (runAttemptCount < MAX_ATTEMPTS) {
                 Result.retry()
@@ -125,8 +127,14 @@ class UploadWorker(
         if (sendable.isEmpty()) return batch.copy(items = marked)
 
         // Hashed first, so the API can say it already holds a file and no bytes move for it.
-        val intent = api.uploadIntent(sendable.map { it.declared(sha256Of(Uri.parse(it.uri))) })
+        val hashes = sendable.associate { it.uri to sha256Of(context, Uri.parse(it.uri)) }
+        val intent = api.uploadIntent(sendable.map { it.declared(hashes[it.uri]) })
         val granted = sendable.map { it.uri }.zip(intent.items).toMap()
+        // The timeline shows a photograph once because the index knows which item it became.
+        sendable.forEach { item ->
+            val hash = hashes[item.uri] ?: return@forEach
+            recordUpload(context, item.uri, item.sizeBytes, hash, granted[item.uri]?.itemId)
+        }
         return batch.copy(
             items =
                 marked.map { item ->
@@ -141,24 +149,6 @@ class UploadWorker(
                 },
         )
     }
-
-    /**
-     * The SHA-256 of a file, read in blocks rather than into memory: this runs on a phone and the
-     * file may be a two gigabyte video.
-     */
-    private fun sha256Of(uri: Uri): String? =
-        runCatching {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            open(uri).use { input ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read <= 0) break
-                    digest.update(buffer, 0, read)
-                }
-            }
-            digest.digest().joinToString("") { "%02x".format(it) }
-        }.getOrNull()
 
     /**
      * One file. A small one is a single PUT; a large one is parts, and on a second attempt the
@@ -225,7 +215,22 @@ class UploadWorker(
                 PROGRESS_COUNT to batch.items.size,
             ),
         )
-        setForeground(foregroundInfo(filename, batch.doneBytes, batch.totalBytes))
+        inForeground(foregroundInfo(filename, batch.doneBytes, batch.totalBytes))
+    }
+
+    /**
+     * Runs in the foreground when the system allows it. From Android 12 a backup started in the
+     * background — by a new photograph, or by the six-hourly sweep — may not start a foreground
+     * service, and asking threw and failed the batch. It uploads as ordinary background work instead;
+     * a batch the system stops is offered again, and its parts resume where they were.
+     */
+    private suspend fun inForeground(info: ForegroundInfo) {
+        try {
+            setForeground(info)
+        } catch (refused: IllegalStateException) {
+            // ForegroundServiceStartNotAllowedException is an IllegalStateException, and it is the
+            // only one setForeground throws.
+        }
     }
 
     private fun foregroundInfo(
@@ -262,6 +267,9 @@ class UploadWorker(
         /** The files a finished batch left out as too large for the server, one per line. */
         const val TOO_LARGE = "tooLarge"
         const val ERROR = "error"
+
+        /** The server's error code, when the server refused: what the backup's status line reads. */
+        const val ERROR_CODE = "errorCode"
         const val PROGRESS_DONE = "done"
         const val PROGRESS_TOTAL = "total"
         const val PROGRESS_FILE = "file"

@@ -68,6 +68,8 @@ class FakeSettings(
 class FakeBackup : Backup {
     override val state = MutableStateFlow(SyncState())
 
+    override val conditions = MutableStateFlow(com.mantel.app.media.Conditions(unmetered = true, charging = true))
+
     override suspend fun setEnabled(enabled: Boolean) = Unit
 
     override suspend fun setFolders(folders: Set<String>) = Unit
@@ -94,6 +96,24 @@ class FakeUploads : Uploads {
     override fun reports(albumId: String?): Flow<UploadReport> = emptyFlow()
 }
 
+/** A phone with no photographs of its own, or with whichever ones a test gives it. */
+class FakePhoneMedia(
+    var access: Boolean = false,
+    var photos: List<com.mantel.app.timeline.RollPhoto> = emptyList(),
+) : com.mantel.app.timeline.PhoneMedia {
+    var hashingAskedFor = 0
+
+    override fun hasAccess() = access
+
+    override suspend fun roll(newest: Int?) = if (access) photos.take(newest ?: photos.size) else emptyList()
+
+    override fun hashWhenCharging() {
+        hashingAskedFor++
+    }
+
+    override fun changes() = kotlinx.coroutines.flow.emptyFlow<Unit>()
+}
+
 /**
  * A server that answers from a script and counts what it was asked.
  *
@@ -102,6 +122,7 @@ class FakeUploads : Uploads {
  * the ones the app ships. The transport answers in the caller's own coroutine, so a test's virtual
  * clock sees the whole call rather than losing it to a thread pool.
  */
+
 class FakeServer {
     val requests = mutableListOf<String>()
     private val gate = CompletableDeferred<Unit>()
@@ -112,6 +133,7 @@ class FakeServer {
     var album: (String) -> String = { emptyAlbum(it) }
     var shareLinks: String = "[]"
     var library: String = """{"items":[],"next":null,"totalItems":0}"""
+    var trash: String = """{"items":[],"next":null,"totalItems":0}"""
 
     /** Nothing answers until [release]. */
     fun hold() {
@@ -138,6 +160,7 @@ class FakeServer {
             path.startsWith("/api/albums/") && path.endsWith("/share-links") -> shareLinks
             path.startsWith("/api/albums/") -> album(path.removePrefix("/api/albums/"))
             path == "/api/library" -> library
+            path == "/api/library/trash" -> trash
             else -> "{}"
         }
     }

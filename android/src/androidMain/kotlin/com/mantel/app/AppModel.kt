@@ -16,26 +16,47 @@ import com.mantel.app.auth.Pkce
 import com.mantel.app.auth.Settings
 import com.mantel.app.auth.StoredSettings
 import com.mantel.app.media.Backup
+import com.mantel.app.media.BackupLine
 import com.mantel.app.media.DeviceMedia
 import com.mantel.app.media.MediaFolder
 import com.mantel.app.media.PhoneBackup
 import com.mantel.app.media.UploadReport
 import com.mantel.app.media.Uploads
 import com.mantel.app.media.WorkManagerUploads
+import com.mantel.app.media.backupLine
+import com.mantel.app.timeline.DevicePhoneMedia
+import com.mantel.app.timeline.PhoneMedia
+import com.mantel.app.timeline.RollPhoto
+import com.mantel.app.timeline.Tile
+import com.mantel.app.timeline.Timeline
+import com.mantel.app.timeline.buildTimeline
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+/**
+ * The three sections at the foot of the app (DESIGN.md). Each is the bottom of the stack: choosing
+ * one replaces whichever you were on, and a screen you visit from one pushes over it.
+ */
+enum class Section { PHOTOS, ALBUMS, SHARED }
 
 /**
  * What the app is showing, and how it moves between those states.
  *
- * The screens are the shape of the product: sign in, the two peers — the albums and the library —
- * and the screens you visit from them. There is no navigation library here; the stack is a list in
- * the model, because six screens and one back gesture do not need routes (DESIGN.md).
+ * The screens are the shape of the product: sign in, the three sections — Photos, Albums and
+ * Shared — and the screens you visit from them. There is no navigation library here; the stack is
+ * a list in the model, because a handful of screens and one back gesture do not need routes.
  */
 sealed interface Screen {
     data object Starting : Screen
@@ -50,8 +71,9 @@ sealed interface Screen {
     ) : Screen
 
     data class Albums(
-        val me: Me,
         val albums: List<AlbumSummary> = emptyList(),
+        /** Whether the field for a new album's title is open. */
+        val creating: Boolean = false,
         val newTitle: String = "",
         val busy: Boolean = false,
         val refreshing: Boolean = false,
@@ -59,19 +81,90 @@ sealed interface Screen {
         val retryable: Boolean = false,
     ) : Screen
 
+    /**
+     * The timeline: the phone's photographs and the library as one, grouped by the day each was
+     * taken. Where the app opens.
+     */
+    data class Photos(
+        val library: List<ItemView> = emptyList(),
+        val totalItems: Long = 0,
+        /** Where the library's next page starts. Null once the timeline has all of it. */
+        val cursor: String? = null,
+        val loadingMore: Boolean = false,
+        val roll: List<RollPhoto> = emptyList(),
+        /** Whether the app may read the phone's photographs. Without it the timeline is the library. */
+        val phoneAccess: Boolean = false,
+        val timeline: Timeline = Timeline.EMPTY,
+        /** How many photographs to a row: pinch moves between three. */
+        val columns: Int = 4,
+        /** Tile keys. A selection exists from the first long press until it is cleared or used. */
+        val selected: Set<String> = emptySet(),
+        val choosingAlbum: Boolean = false,
+        val albums: List<AlbumSummary> = emptyList(),
+        val newAlbumTitle: String = "",
+        /** Something the last action wants said, such as what a delete left on the phone. */
+        val note: String? = null,
+        /** The trash, so a photograph on the phone whose library copy was deleted says so. */
+        val trash: List<ItemView> = emptyList(),
+        /**
+         * Whether the library has answered at least once. Until it has, a photograph on the phone
+         * cannot be said to be backed up or not, and its tile says neither.
+         */
+        val libraryRead: Boolean = false,
+        /** The tile open full screen, if one is. The grid stays beneath it, where it was. */
+        val viewing: String? = null,
+        /** The tile the viewer last showed, so the grid can bring it into view on the way back. */
+        val returnTo: String? = null,
+        val showingInfo: Boolean = false,
+        /** The viewer's controls. A tap on the photograph hides them and shows them again. */
+        val chrome: Boolean = true,
+        val busy: Boolean = false,
+        val refreshing: Boolean = false,
+        val error: String? = null,
+        val retryable: Boolean = false,
+    ) : Screen {
+        val selecting: Boolean get() = selected.isNotEmpty()
+    }
+
+    /** The library, opened over an album to choose what goes into it. */
     data class Library(
+        /** The album this library was opened to add to. */
+        val pickingFor: String,
         val items: List<ItemView> = emptyList(),
         val totalItems: Long = 0,
         val selected: Set<String> = emptySet(),
-        val albums: List<AlbumSummary> = emptyList(),
-        val addingTo: Boolean? = null,
-        /** The album this library was opened to add to, if it was opened from one. */
-        val pickingFor: String? = null,
         /** Where the next page starts. Null once the library has all of it. */
         val cursor: String? = null,
         val loadingMore: Boolean = false,
         val busy: Boolean = false,
+        val error: String? = null,
+        val retryable: Boolean = false,
+    ) : Screen
+
+    /** Every live share link across every album: what each opens, and when it stops. */
+    data class Shared(
+        val links: List<SharedLink> = emptyList(),
+        /** The link whose revoke is waiting for a yes. Revoking cannot be undone. */
+        val revoking: String? = null,
+        val busy: Boolean = false,
         val refreshing: Boolean = false,
+        val error: String? = null,
+        val retryable: Boolean = false,
+    ) : Screen
+
+    /** Behind the avatar: who is signed in, the space they use, backup, the trash, and leaving. */
+    data class Account(val me: Me) : Screen
+
+    /** Deleted media, kept for 30 days and restorable until the sweep removes it. */
+    data class Trash(
+        val items: List<ItemView> = emptyList(),
+        val totalItems: Long = 0,
+        val selected: Set<String> = emptySet(),
+        /** Removing for good cannot be undone, so it waits for a second press. */
+        val confirmingRemove: Boolean = false,
+        val cursor: String? = null,
+        val loadingMore: Boolean = false,
+        val busy: Boolean = false,
         val error: String? = null,
         val retryable: Boolean = false,
     ) : Screen
@@ -91,8 +184,13 @@ sealed interface Screen {
 
     data class Album(
         val album: AlbumView,
+        /** The item open full screen, if one is. Its caption, cover and removal are done there. */
         val selected: String? = null,
         val caption: String = "",
+        val editingCaption: Boolean = false,
+        val showingInfo: Boolean = false,
+        /** The viewer's controls. A tap on the photograph hides them and shows them again. */
+        val chrome: Boolean = true,
         val links: List<ShareLinkView> = emptyList(),
         val sharing: Boolean = false,
         val pin: String = "",
@@ -114,6 +212,24 @@ sealed interface Screen {
 
 private val MOVING = setOf(ItemStatus.PENDING_UPLOAD, ItemStatus.UPLOADED, ItemStatus.PROCESSING)
 
+/** A live link with the album it opens, because a link on its own says nothing about what it shows. */
+data class SharedLink(
+    val link: ShareLinkView,
+    val albumId: String,
+    val albumTitle: String,
+)
+
+/** The section a screen belongs to, when it is one of the three. A visited screen has none. */
+val Screen.section: Section?
+    get() =
+        when (this) {
+            // Full screen means full screen: the bar goes while a photograph is open.
+            is Screen.Photos -> if (viewing == null) Section.PHOTOS else null
+            is Screen.Albums -> Section.ALBUMS
+            is Screen.Shared -> Section.SHARED
+            else -> null
+        }
+
 /** A batch on its way to storage, as the worker last reported it. */
 data class UploadStatus(
     val filename: String,
@@ -122,6 +238,8 @@ data class UploadStatus(
     val index: Int,
     val count: Int,
     val failed: String? = null,
+    /** The server's code for the failure, when it refused: `quota_exceeded` is a full library. */
+    val failedCode: String? = null,
 )
 
 /** What the screen asks the outside world to do, which only the activity can do. */
@@ -135,6 +253,12 @@ sealed interface Effect {
 
     /** The system share sheet. A link is shared through whatever the person already uses. */
     data class ShareText(val url: String) : Effect
+
+    /**
+     * Photographs through the share sheet: the phone's own files, and library photographs at
+     * display size, which the activity fetches first because only it can write a file to share.
+     */
+    data class ShareMedia(val phone: List<String>, val remote: List<String>) : Effect
 }
 
 /**
@@ -148,6 +272,13 @@ sealed interface Effect {
 private class Held {
     var albums: List<AlbumSummary>? = null
     var library: LibraryHeld? = null
+    var shared: List<SharedLink>? = null
+    var roll: List<RollPhoto>? = null
+    var trash: List<ItemView>? = null
+    var timeline: Timeline? = null
+
+    /** The density a person chose stays chosen across a screen change. */
+    var columns: Int = 4
     val opened = mutableMapOf<String, Pair<AlbumView, List<ShareLinkView>>>()
 
     fun forget(albumId: String) {
@@ -165,6 +296,7 @@ class AppModel(
     private val settings: Settings,
     private val backup: Backup,
     private val uploads: Uploads,
+    private val phone: PhoneMedia,
     private val api: (String, String?) -> MantelApi,
     private val scope: CoroutineScope,
 ) {
@@ -172,9 +304,15 @@ class AppModel(
         settings = StoredSettings(context.applicationContext),
         backup = PhoneBackup(context.applicationContext),
         uploads = WorkManagerUploads(context.applicationContext),
+        phone = DevicePhoneMedia(context.applicationContext),
         api = { url, session -> MantelApi(url, session) },
         scope = scope,
     )
+
+    /** What the media permission was asked for, because the answer means something different to each. */
+    private enum class Access { BACKUP, TIMELINE }
+
+    private var accessFor = Access.BACKUP
 
     private val _screen = MutableStateFlow<Screen>(Screen.Starting)
     val screen: StateFlow<Screen> = _screen
@@ -189,7 +327,16 @@ class AppModel(
     private val _backupStatus = MutableStateFlow<UploadStatus?>(null)
     val backupStatus: StateFlow<UploadStatus?> = _backupStatus
 
-    /** Whether a back gesture has somewhere to go. A peer is the bottom of the stack. */
+    /** The phone's photographs as last read, for the backup's line to count what it has not sent. */
+    private val rollNow = MutableStateFlow<List<RollPhoto>>(emptyList())
+
+    /** The line beside the avatar: the one thing true about the backup now. */
+    private val _backupLine = MutableStateFlow<BackupLine?>(null)
+    val backupLine: StateFlow<BackupLine?> = _backupLine
+
+    private var lineWatch: Job? = null
+
+    /** Whether a back gesture has somewhere to go. A section is the bottom of the stack. */
     private val _canGoBack = MutableStateFlow(false)
     val canGoBack: StateFlow<Boolean> = _canGoBack
 
@@ -217,7 +364,24 @@ class AppModel(
     }
 
     fun resumed(value: Boolean) {
+        // Back from the camera: the photograph just taken belongs on the timeline now, before any
+        // backup has seen it. The first resume is the app opening, which reads the phone anyway.
+        if (value && !resumed.value) rereadRoll()
         resumed.value = value
+    }
+
+    /** The phone's photographs, read again after the camera roll changed. */
+    private fun rereadRoll() {
+        if (!phone.hasAccess()) return
+        scope.launch {
+            val roll = phone.roll()
+            held.roll = roll
+            rollNow.value = roll
+            if (_screen.value is Screen.Photos) {
+                _screen.update<Screen.Photos> { it.copy(roll = roll, phoneAccess = true) }
+                rebuildTimeline()
+            }
+        }
     }
 
     // --- navigation ---------------------------------------------------------------------------
@@ -228,8 +392,8 @@ class AppModel(
         show(screen)
     }
 
-    /** A peer replaces the other peer and is the bottom of the stack (DESIGN.md). */
-    private fun peer(screen: Screen) {
+    /** A section replaces whichever section you were on, and is the bottom of the stack. */
+    private fun section(screen: Screen) {
         stack.clear()
         show(screen)
     }
@@ -254,17 +418,49 @@ class AppModel(
         show(beneath)
         when (beneath) {
             is Screen.Albums -> refreshAlbums()
+            is Screen.Photos -> refreshPhotos()
             is Screen.Library -> refreshLibrary()
+            is Screen.Shared -> refreshShared()
+            is Screen.Trash -> refreshTrash()
             is Screen.Album -> resume(beneath.album.id)
             else -> Unit
         }
     }
 
-    /** The albums, as a peer. */
+    /** The navigation bar. */
+    fun openSection(section: Section) {
+        when (section) {
+            Section.PHOTOS -> openPhotos()
+            Section.ALBUMS -> openAlbums()
+            Section.SHARED -> openShared()
+        }
+    }
+
     fun openAlbums() {
-        val me = account ?: return
-        peer(Screen.Albums(me, albums = held.albums.orEmpty()))
+        section(Screen.Albums(albums = held.albums.orEmpty()))
         refreshAlbums()
+    }
+
+    /** Photos is where the app opens, and where it returns to after signing in. */
+    private fun home() {
+        root(photosScreen())
+        refreshPhotos()
+    }
+
+    // --- account ------------------------------------------------------------------------------
+
+    /** The avatar. Drawn from the account already held, then re-read for the storage figure. */
+    fun openAccount() {
+        val me = account ?: return
+        push(Screen.Account(me))
+        scope.launch {
+            withApi(onApiError = { _, _ -> }) { api ->
+                val fresh = api.me()
+                account = fresh
+                settings.setMe(fresh)
+                _screen.update<Screen.Account> { it.copy(me = fresh) }
+            }
+        }
     }
 
     // --- sign in ------------------------------------------------------------------------------
@@ -283,29 +479,27 @@ class AppModel(
                 return@launch
             }
             if (session != null) {
+                // Photos opens on the account this phone last saw, at once: the photographs on the
+                // phone need nothing from the server, and waiting for a round trip before drawing
+                // them was most of a cold start. The session is confirmed underneath, and a session
+                // the server refuses still signs out.
+                val lastSeen = settings.me.first()
+                if (lastSeen != null) {
+                    account = lastSeen
+                    watchBackup()
+                    home()
+                    confirmSession(serverUrl, session)
+                    return@launch
+                }
                 try {
                     val me = api(serverUrl, session).use { it.me() }
                     settings.setMe(me)
                     account = me
                     watchBackup()
-                    root(Screen.Albums(me))
-                    refreshAlbums()
+                    home()
                     return@launch
                 } catch (e: java.io.IOException) {
-                    // Offline is not signed out. The session is still good, so the app opens on
-                    // the account it last saw and offers to ask again.
-                    val cached = settings.me.first()
-                    if (cached != null) {
-                        account = cached
-                        root(
-                            Screen.Albums(
-                                cached,
-                                error = "That server did not answer. You may be offline.",
-                                retryable = true,
-                            ),
-                        )
-                        return@launch
-                    }
+                    // Offline with no account seen yet: there is nothing to open on but sign-in.
                     root(
                         Screen.SignIn(
                             serverUrl = serverUrl,
@@ -320,6 +514,23 @@ class AppModel(
             }
             root(Screen.SignIn(serverUrl = serverUrl))
             loadMethods(serverUrl)
+        }
+    }
+
+    /** The session, asked about after Photos is already on the screen. */
+    private suspend fun confirmSession(
+        serverUrl: String,
+        session: String,
+    ) {
+        try {
+            val me = api(serverUrl, session).use { it.me() }
+            settings.setMe(me)
+            account = me
+        } catch (e: java.io.IOException) {
+            // Offline is not signed out; Photos says the server did not answer when it tries.
+        } catch (e: ApiException) {
+            // The server answered and refused: this session is over.
+            signOut()
         }
     }
 
@@ -393,8 +604,7 @@ class AppModel(
                 settings.setMe(me)
                 account = me
                 watchBackup()
-                root(Screen.Albums(me))
-                refreshAlbums()
+                home()
             }
         }
     }
@@ -403,9 +613,15 @@ class AppModel(
         scope.launch {
             account = null
             backupWatch?.cancel()
+            lineWatch?.cancel()
             _backupStatus.value = null
+            _backupLine.value = null
+            rollNow.value = emptyList()
             held.albums = null
             held.library = null
+            held.shared = null
+            held.roll = null
+            held.timeline = null
             held.opened.clear()
             val serverUrl = settings.serverUrl.first() ?: return@launch
             val session = settings.session.first()
@@ -426,13 +642,22 @@ class AppModel(
 
     // --- albums -------------------------------------------------------------------------------
 
+    /** The plus in the title. The field opens at the top of the list; it is not a screen. */
+    fun startNewAlbum() {
+        _screen.update<Screen.Albums> { it.copy(creating = true, error = null) }
+    }
+
+    fun cancelNewAlbum() {
+        _screen.update<Screen.Albums> { it.copy(creating = false, newTitle = "") }
+    }
+
     fun setNewAlbumTitle(title: String) {
         _screen.update<Screen.Albums> { it.copy(newTitle = title, error = null) }
     }
 
     fun refreshAlbums() {
         scope.launch {
-            onAlbums { api, _ ->
+            onAlbums { api ->
                 val albums = api.albums()
                 held.albums = albums
                 _screen.update<Screen.Albums> { it.copy(albums = albums, busy = false, refreshing = false) }
@@ -445,10 +670,10 @@ class AppModel(
         val title = state.newTitle.trim()
         if (title.isEmpty()) return
         scope.launch {
-            onAlbums { api, _ ->
+            onAlbums { api ->
                 val created = api.createAlbum(title)
                 held.albums = null
-                _screen.update<Screen.Albums> { it.copy(newTitle = "", busy = false) }
+                _screen.update<Screen.Albums> { it.copy(newTitle = "", creating = false, busy = false) }
                 open(created.id)
             }
         }
@@ -486,6 +711,7 @@ class AppModel(
     fun toggleSync() {
         val state = _screen.value as? Screen.Sync ?: return
         if (!state.enabled) {
+            accessFor = Access.BACKUP
             _effects.value = Effect.AskForMediaAccess
             return
         }
@@ -498,6 +724,11 @@ class AppModel(
 
     /** The answer to the permission request. Refused means sync stays off and says so. */
     fun mediaAccess(granted: Boolean) {
+        if (accessFor == Access.TIMELINE) {
+            // Refused leaves the timeline as the library, with the offer still there.
+            if (granted) refreshPhotos()
+            return
+        }
         scope.launch {
             if (!granted) {
                 _screen.update<Screen.Sync> {
@@ -571,34 +802,389 @@ class AppModel(
         }
     }
 
-    // --- library ------------------------------------------------------------------------------
+    // --- photos -------------------------------------------------------------------------------
 
-    /** The library, as a peer. */
-    fun openLibrary() {
-        peer(libraryScreen(pickingFor = null))
-        refreshLibrary()
+    /** Photos: the camera roll and the library as one timeline. Where the app opens. */
+    fun openPhotos() {
+        section(photosScreen())
+        refreshPhotos()
+    }
+
+    /** What Photos last showed, drawn at once; the reads replace it when they answer. */
+    private fun photosScreen(): Screen.Photos {
+        val last = held.library
+        return Screen.Photos(
+            library = last?.items.orEmpty(),
+            totalItems = last?.totalItems ?: 0,
+            cursor = last?.cursor,
+            libraryRead = last != null,
+            roll = held.roll.orEmpty(),
+            trash = held.trash.orEmpty(),
+            phoneAccess = phone.hasAccess(),
+            timeline = held.timeline ?: Timeline.EMPTY,
+            columns = held.columns,
+        )
     }
 
     /**
-     * The library, opened over an album to take items from it. It is the same screen doing a job,
-     * so back returns to the album rather than leaving it.
+     * The phone's photographs and the library's first page, read side by side, then merged. The
+     * phone answers at once and the library over the network, so the phone's are shown the moment
+     * they are read rather than when the server has caught up.
+     */
+    private fun refreshPhotos() {
+        scope.launch {
+            val access = phone.hasAccess()
+            if (access) {
+                // A cold start holds nothing, so the first screen is drawn from the newest photographs
+                // before the whole camera roll has been read. A person opened the app to see them.
+                if (held.roll == null) {
+                    val first = phone.roll(newest = FIRST_SCREEN)
+                    _screen.update<Screen.Photos> { it.copy(roll = first, phoneAccess = true) }
+                    rebuildTimeline()
+                }
+                val roll = phone.roll()
+                held.roll = roll
+                rollNow.value = roll
+                _screen.update<Screen.Photos> { it.copy(roll = roll, phoneAccess = true) }
+                rebuildTimeline()
+                if (roll.any { it.hash == null }) phone.hashWhenCharging()
+            }
+            onPhotos { api ->
+                val page = api.library(limit = LIBRARY_PAGE)
+                held.library = LibraryHeld(page.items, page.totalItems, page.next)
+                // The trash is small and read whole: thirty days of deletions.
+                val trash = mutableListOf<ItemView>()
+                var after: String? = null
+                do {
+                    val trashPage = api.trash(after = after, limit = TRASH_PAGE)
+                    trash += trashPage.items
+                    after = trashPage.next
+                } while (after != null)
+                held.trash = trash
+                _screen.update<Screen.Photos> { it.copy(trash = trash) }
+                _screen.update<Screen.Photos> {
+                    it.copy(
+                        library = page.items,
+                        totalItems = page.totalItems,
+                        cursor = page.next,
+                        libraryRead = true,
+                        busy = false,
+                        refreshing = false,
+                    )
+                }
+                rebuildTimeline()
+            }
+        }
+    }
+
+    /** The next page of the library, asked for as the timeline nears the end of what it has. */
+    fun loadMorePhotos() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val cursor = state.cursor ?: return
+        if (state.loadingMore) return
+        _screen.update<Screen.Photos> { it.copy(loadingMore = true) }
+        scope.launch {
+            withApi(
+                onApiError = { message, retryable ->
+                    _screen.update<Screen.Photos> { it.copy(loadingMore = false, error = message, retryable = retryable) }
+                },
+            ) { api ->
+                val page = api.library(after = cursor, limit = LIBRARY_PAGE)
+                val current = _screen.value as? Screen.Photos ?: return@withApi
+                // The cursor moved while this was in flight, so this page is not the next one.
+                if (current.cursor != cursor) return@withApi
+                val items = current.library + page.items
+                held.library = LibraryHeld(items, page.totalItems, page.next)
+                _screen.update<Screen.Photos> { it.copy(library = items, cursor = page.next, loadingMore = false) }
+                rebuildTimeline()
+            }
+        }
+    }
+
+    /** The merge, off the main thread: ten thousand photographs are a few milliseconds, not a frame. */
+    private suspend fun rebuildTimeline() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val timeline =
+            withContext(Dispatchers.Default) {
+                buildTimeline(state.roll, state.library, libraryComplete = state.cursor == null, trash = state.trash)
+            }
+        held.timeline = timeline
+        _screen.update<Screen.Photos> { current ->
+            // A selection keeps only what is still on the timeline.
+            val keys = timeline.tiles.mapTo(HashSet()) { it.key }
+            // A photograph deleted from the viewer is gone from the timeline; the viewer moves on to
+            // the one that took its place rather than closing on nothing.
+            val viewing =
+                current.viewing?.let { key ->
+                    if (key in keys) {
+                        key
+                    } else {
+                        val at = current.timeline.tiles.indexOfFirst { it.key == key }.coerceAtLeast(0)
+                        timeline.tiles.getOrNull(at.coerceAtMost(timeline.tiles.lastIndex))?.key
+                    }
+                }
+            current.copy(timeline = timeline, selected = current.selected intersect keys, viewing = viewing)
+        }
+    }
+
+    /**
+     * The phone's own photographs need the media permission. Photos asks for it only when the
+     * person says to, from the line that offers it; an install that never does is never asked.
+     */
+    fun showPhonePhotos() {
+        accessFor = Access.TIMELINE
+        _effects.value = Effect.AskForMediaAccess
+    }
+
+    /** Pinch: three densities, from a few large photographs to a month on one screen. */
+    fun zoom(closer: Boolean) {
+        val columns = held.columns
+        val next = if (closer) DENSITIES.lastOrNull { it < columns } else DENSITIES.firstOrNull { it > columns }
+        next ?: return
+        held.columns = next
+        _screen.update<Screen.Photos> { it.copy(columns = next) }
+    }
+
+    // --- the viewer ---------------------------------------------------------------------------
+
+    /** A tap on a photograph, when nothing is selected, opens it full screen. */
+    fun openViewer(key: String) {
+        _screen.update<Screen.Photos> { it.copy(viewing = key, showingInfo = false, chrome = true, note = null) }
+    }
+
+    fun closeViewer() {
+        _screen.update<Screen.Photos> { it.copy(viewing = null, returnTo = it.viewing, showingInfo = false) }
+    }
+
+    /** A swipe settled on another photograph. Near the end of what is loaded, the next page is asked for. */
+    fun viewerMoved(key: String) {
+        val state = _screen.value as? Screen.Photos ?: return
+        _screen.update<Screen.Photos> { it.copy(viewing = key, showingInfo = false) }
+        val index = state.timeline.tiles.indexOfFirst { it.key == key }
+        if (index >= state.timeline.tiles.size - VIEWER_LOOKAHEAD) loadMorePhotos()
+    }
+
+    fun toggleChrome() {
+        _screen.update<Screen.Photos> { it.copy(chrome = !it.chrome) }
+    }
+
+    /** When it was taken, how large it is, and whether it lives on the phone, in the library, or both. */
+    fun toggleInfo() {
+        _screen.update<Screen.Photos> { it.copy(showingInfo = !it.showingInfo, chrome = true) }
+    }
+
+    private fun viewed(state: Screen.Photos): Tile? = state.timeline.tiles.firstOrNull { it.key == state.viewing }
+
+    fun shareViewed() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val tile = viewed(state) ?: return
+        _effects.value =
+            Effect.ShareMedia(
+                phone = listOfNotNull(tile.phone?.uri),
+                remote = if (tile.phone == null) listOfNotNull(tile.item?.displayUrl ?: tile.item?.thumbUrl) else emptyList(),
+            )
+    }
+
+    /** Add to album from the viewer is a selection of one, and the grid's album choice takes it from there. */
+    fun addViewedToAlbum() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val tile = viewed(state) ?: return
+        _screen.update<Screen.Photos> {
+            it.copy(viewing = null, returnTo = tile.key, showingInfo = false, selected = setOf(tile.key))
+        }
+        chooseAlbumForSelection()
+    }
+
+    /**
+     * To the trash, the library copy only. A photograph only on the phone stays, because Mantel never
+     * deletes from the phone; one on both keeps its phone copy on the timeline.
+     */
+    fun deleteViewed() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val tile = viewed(state) ?: return
+        val itemId = tile.item?.id
+        if (itemId == null) {
+            val note =
+                if (tile.trashed) {
+                    "Its library copy is already in the trash. The copy on this phone stays: Mantel never deletes from the phone."
+                } else {
+                    "This photograph is only on this phone, so it stays. Mantel never deletes from the phone."
+                }
+            _screen.update<Screen.Photos> { it.copy(note = note) }
+            return
+        }
+        scope.launch {
+            onPhotos { api ->
+                api.moveToTrash(itemId)
+                forgetMedia()
+                _screen.update<Screen.Photos> { it.copy(busy = false, note = "Moved to the trash. It is kept for 30 days.") }
+                refreshPhotos()
+            }
+        }
+    }
+
+    // --- selection ----------------------------------------------------------------------------
+
+    /** A long press starts a selection with that photograph in it. */
+    fun startSelection(key: String) {
+        _screen.update<Screen.Photos> { it.copy(selected = it.selected + key, note = null) }
+    }
+
+    /** A tap while selecting adds or removes one photograph. */
+    fun toggleTile(key: String) {
+        _screen.update<Screen.Photos> { state ->
+            state.copy(selected = if (key in state.selected) state.selected - key else state.selected + key, note = null)
+        }
+    }
+
+    /** A drag after the long press extends the selection over everything it passes. */
+    fun selectRange(keys: Collection<String>) {
+        _screen.update<Screen.Photos> { it.copy(selected = it.selected + keys) }
+    }
+
+    /** A day's heading selects the whole day, or clears it if the day is already selected. */
+    fun toggleDay(date: java.time.LocalDate) {
+        _screen.update<Screen.Photos> { state ->
+            val keys = state.timeline.days.firstOrNull { it.date == date }?.tiles?.map { it.key }.orEmpty()
+            val all = keys.isNotEmpty() && state.selected.containsAll(keys)
+            state.copy(selected = if (all) state.selected - keys.toSet() else state.selected + keys, note = null)
+        }
+    }
+
+    fun clearSelection() {
+        _screen.update<Screen.Photos> { it.copy(selected = emptySet(), choosingAlbum = false, newAlbumTitle = "") }
+    }
+
+    private fun selectedTiles(state: Screen.Photos): List<Tile> = state.timeline.tiles.filter { it.key in state.selected }
+
+    /**
+     * Through the system share sheet. A photograph on the phone is shared from the phone; one only in
+     * the library is fetched at display size first, which the activity does.
+     */
+    fun shareSelection() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val tiles = selectedTiles(state)
+        _effects.value =
+            Effect.ShareMedia(
+                phone = tiles.mapNotNull { it.phone?.uri },
+                remote = tiles.filter { it.phone == null }.mapNotNull { it.item?.displayUrl ?: it.item?.thumbUrl },
+            )
+    }
+
+    /** The albums to add to, held so the list is there before the server answers. */
+    fun chooseAlbumForSelection() {
+        _screen.update<Screen.Photos> { it.copy(choosingAlbum = true, albums = held.albums.orEmpty()) }
+        scope.launch {
+            withApi(onApiError = { _, _ -> }) { api ->
+                val albums = api.albums()
+                held.albums = albums
+                _screen.update<Screen.Photos> { it.copy(albums = albums) }
+            }
+        }
+    }
+
+    fun cancelChooseAlbum() {
+        _screen.update<Screen.Photos> { it.copy(choosingAlbum = false, newAlbumTitle = "") }
+    }
+
+    fun setSelectionAlbumTitle(title: String) {
+        _screen.update<Screen.Photos> { it.copy(newAlbumTitle = title) }
+    }
+
+    /** An album is made from a selection: a title, then everything selected goes into it. */
+    fun newAlbumFromSelection() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val title = state.newAlbumTitle.trim()
+        if (title.isEmpty()) return
+        scope.launch {
+            onPhotos { api ->
+                val album = api.createAlbum(title)
+                addTiles(api, album.id, selectedTiles(state))
+            }
+        }
+    }
+
+    fun addSelectionToAlbum(albumId: String) {
+        val state = _screen.value as? Screen.Photos ?: return
+        scope.launch { onPhotos { api -> addTiles(api, albumId, selectedTiles(state)) } }
+    }
+
+    /**
+     * What the library holds joins the album as it is. What is only on the phone is uploaded into
+     * it, which is the same upload a picked photograph gets.
+     */
+    private suspend fun addTiles(
+        api: MantelApi,
+        albumId: String,
+        tiles: List<Tile>,
+    ) {
+        val inLibrary = tiles.mapNotNull { it.item?.id }
+        if (inLibrary.isNotEmpty()) api.addToAlbum(albumId, inLibrary)
+        val onlyOnPhone = tiles.filter { it.item == null }.mapNotNull { it.phone?.uri }
+        if (onlyOnPhone.isNotEmpty()) uploads.enqueue(albumId, onlyOnPhone.map(Uri::parse))
+        held.forget(albumId)
+        held.albums = null
+        _screen.update<Screen.Photos> {
+            it.copy(selected = emptySet(), choosingAlbum = false, newAlbumTitle = "", busy = false)
+        }
+        open(albumId)
+    }
+
+    /**
+     * To the trash, where the server keeps them for 30 days. Only a library copy can go: Mantel never
+     * deletes from the phone, so a photograph only on the phone stays where it is, and the screen
+     * says so.
+     */
+    fun deleteSelection() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val tiles = selectedTiles(state)
+        val inLibrary = tiles.mapNotNull { it.item?.id }
+        val onlyOnPhone = tiles.count { it.item == null }
+        scope.launch {
+            onPhotos { api ->
+                inLibrary.forEach { api.moveToTrash(it) }
+                forgetMedia()
+                val note =
+                    when (onlyOnPhone) {
+                        0 -> null
+                        1 -> "One photograph is only on this phone, so it stays. Mantel never deletes from the phone."
+                        else -> "$onlyOnPhone photographs are only on this phone, so they stay. Mantel never deletes from the phone."
+                    }
+                _screen.update<Screen.Photos> { it.copy(selected = emptySet(), busy = false, note = note) }
+                refreshPhotos()
+            }
+        }
+    }
+
+    private suspend fun onPhotos(block: suspend (MantelApi) -> Unit) {
+        _screen.update<Screen.Photos> { it.copy(busy = true, error = null, retryable = false) }
+        withApi(
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Photos> {
+                    it.copy(busy = false, refreshing = false, error = message, retryable = retryable)
+                }
+            },
+        ) { api -> block(api) }
+    }
+
+    // --- library, over an album ---------------------------------------------------------------
+
+    /**
+     * The library, opened over an album to take items from it. It is a job, not a section, so back
+     * returns to the album rather than leaving it.
      */
     fun addFromLibrary() {
         val albumId = (_screen.value as? Screen.Album)?.album.let { it?.id } ?: return
-        push(libraryScreen(pickingFor = albumId))
-        refreshLibrary()
-    }
-
-    /** The library as it was last read. Drawn at once; the fetch replaces it when it answers. */
-    private fun libraryScreen(pickingFor: String?): Screen.Library {
         val last = held.library
-        return Screen.Library(
-            items = last?.items.orEmpty(),
-            totalItems = last?.totalItems ?: 0,
-            cursor = last?.cursor,
-            albums = held.albums.orEmpty(),
-            pickingFor = pickingFor,
+        push(
+            Screen.Library(
+                items = last?.items.orEmpty(),
+                totalItems = last?.totalItems ?: 0,
+                cursor = last?.cursor,
+                pickingFor = albumId,
+            ),
         )
+        refreshLibrary()
     }
 
     private fun refreshLibrary() {
@@ -607,13 +1193,7 @@ class AppModel(
                 val page = api.library(limit = LIBRARY_PAGE)
                 held.library = LibraryHeld(page.items, page.totalItems, page.next)
                 _screen.update<Screen.Library> {
-                    it.copy(
-                        items = page.items,
-                        totalItems = page.totalItems,
-                        cursor = page.next,
-                        busy = false,
-                        refreshing = false,
-                    )
+                    it.copy(items = page.items, totalItems = page.totalItems, cursor = page.next, busy = false)
                 }
             }
         }
@@ -628,9 +1208,7 @@ class AppModel(
         scope.launch {
             withApi(
                 onApiError = { message, retryable ->
-                    _screen.update<Screen.Library> {
-                        it.copy(loadingMore = false, error = message, retryable = retryable)
-                    }
+                    _screen.update<Screen.Library> { it.copy(loadingMore = false, error = message, retryable = retryable) }
                 },
             ) { api ->
                 val page = api.library(after = cursor, limit = LIBRARY_PAGE)
@@ -639,9 +1217,7 @@ class AppModel(
                 if (current.cursor != cursor) return@withApi
                 val items = current.items + page.items
                 held.library = LibraryHeld(items, page.totalItems, page.next)
-                _screen.update<Screen.Library> {
-                    it.copy(items = items, cursor = page.next, loadingMore = false)
-                }
+                _screen.update<Screen.Library> { it.copy(items = items, cursor = page.next, loadingMore = false) }
             }
         }
     }
@@ -650,52 +1226,21 @@ class AppModel(
         _screen.update<Screen.Library> { state ->
             val next = state.selected.toMutableSet()
             if (!next.add(itemId)) next.remove(itemId)
-            state.copy(selected = next, addingTo = null, error = null)
+            state.copy(selected = next, error = null)
         }
     }
 
-    /** The albums to add to. They are held, so the list is there before the server answers. */
-    fun chooseAlbum() {
-        _screen.update<Screen.Library> { it.copy(addingTo = true, albums = held.albums.orEmpty()) }
-        if (held.albums != null) return
-        scope.launch {
-            withApi(onApiError = { _, _ -> }) { api ->
-                val albums = api.albums()
-                held.albums = albums
-                _screen.update<Screen.Library> { it.copy(albums = albums) }
-            }
-        }
-    }
-
-    fun cancelAdd() {
-        _screen.update<Screen.Library> { it.copy(addingTo = null) }
-    }
-
-    /** Selecting library media into an album. Nothing is copied and nothing costs quota. */
-    fun addSelectionTo(albumId: String) {
+    /** Selecting library media into the album it was opened from. Nothing is copied and nothing costs quota. */
+    fun addSelectionToPickingAlbum() {
         val state = _screen.value as? Screen.Library ?: return
-        val pickingFor = state.pickingFor
+        val albumId = state.pickingFor
         scope.launch {
             onLibrary { api ->
                 api.addToAlbum(albumId, state.selected.toList())
                 held.forget(albumId)
                 held.albums = null
-                _screen.update<Screen.Library> { it.copy(selected = emptySet(), addingTo = null, busy = false) }
-                // Adding from an album returns to it; adding from the library peer opens it.
-                if (pickingFor == albumId) back() else open(albumId)
-            }
-        }
-    }
-
-    /** The only deletion that removes bytes. An album only ever held a reference to these. */
-    fun deleteSelection() {
-        val state = _screen.value as? Screen.Library ?: return
-        scope.launch {
-            onLibrary { api ->
-                state.selected.forEach { api.deleteFromLibrary(it) }
-                held.opened.clear()
                 _screen.update<Screen.Library> { it.copy(selected = emptySet(), busy = false) }
-                refreshLibrary()
+                back()
             }
         }
     }
@@ -704,9 +1249,7 @@ class AppModel(
         _screen.update<Screen.Library> { it.copy(busy = true, error = null, retryable = false) }
         withApi(
             onApiError = { message, retryable ->
-                _screen.update<Screen.Library> {
-                    it.copy(busy = false, refreshing = false, error = message, retryable = retryable)
-                }
+                _screen.update<Screen.Library> { it.copy(busy = false, error = message, retryable = retryable) }
             },
         ) { api -> block(api) }
     }
@@ -742,14 +1285,48 @@ class AppModel(
 
     // --- one album ----------------------------------------------------------------------------
 
+    /** Opens an item full screen, or closes the viewer with null. */
     fun select(itemId: String?) {
         _screen.update<Screen.Album> { state ->
             state.copy(
                 selected = itemId,
                 caption = state.album.items.firstOrNull { it.id == itemId }?.caption.orEmpty(),
+                editingCaption = false,
+                showingInfo = false,
+                chrome = true,
                 error = null,
             )
         }
+    }
+
+    /** A swipe in the album's viewer settled on another item. */
+    fun albumViewerMoved(itemId: String) {
+        _screen.update<Screen.Album> { state ->
+            state.copy(
+                selected = itemId,
+                caption = state.album.items.firstOrNull { it.id == itemId }?.caption.orEmpty(),
+                editingCaption = false,
+                showingInfo = false,
+            )
+        }
+    }
+
+    fun toggleAlbumChrome() {
+        _screen.update<Screen.Album> { it.copy(chrome = !it.chrome) }
+    }
+
+    fun editCaption(open: Boolean) {
+        _screen.update<Screen.Album> { state ->
+            state.copy(
+                editingCaption = open,
+                showingInfo = false,
+                caption = state.selectedItem?.caption.orEmpty(),
+            )
+        }
+    }
+
+    fun toggleAlbumInfo() {
+        _screen.update<Screen.Album> { it.copy(showingInfo = !it.showingInfo, editingCaption = false) }
     }
 
     fun setCaption(text: String) {
@@ -763,7 +1340,7 @@ class AppModel(
         scope.launch {
             onAlbum { api, album ->
                 api.setCaption(album.id, itemId, caption)
-                reload(api, album.id) { it.copy(selected = null) }
+                reload(api, album.id) { it.copy(editingCaption = false) }
             }
         }
     }
@@ -774,7 +1351,7 @@ class AppModel(
         scope.launch {
             onAlbum { api, album ->
                 api.setCover(album.id, itemId)
-                reload(api, album.id) { it.copy(selected = null) }
+                reload(api, album.id) { it }
             }
         }
     }
@@ -796,7 +1373,7 @@ class AppModel(
         scope.launch {
             onAlbum { api, album ->
                 api.retryItem(album.id, itemId)
-                reload(api, album.id) { it.copy(selected = null) }
+                reload(api, album.id) { it }
             }
         }
     }
@@ -877,6 +1454,173 @@ class AppModel(
         _effects.value = Effect.ShareText(url)
     }
 
+    // --- shared -------------------------------------------------------------------------------
+
+    fun openShared() {
+        section(Screen.Shared(links = held.shared.orEmpty()))
+        refreshShared()
+    }
+
+    /**
+     * Every live link, read album by album. The API lists links per album, and every album is asked
+     * at once, so the screen costs one round trip more than the album list and needs nothing from the
+     * server that another client does not already have.
+     */
+    private fun refreshShared() {
+        scope.launch {
+            onShared { api ->
+                val albums = api.albums()
+                held.albums = albums
+                val links =
+                    coroutineScope {
+                        albums.map { album -> async { album to api.shareLinks(album.id) } }.awaitAll()
+                    }.flatMap { (album, links) ->
+                        links.filter { it.live }.map { SharedLink(it, album.id, album.title) }
+                    }.sortedByDescending { it.link.createdAt }
+                held.shared = links
+                _screen.update<Screen.Shared> { it.copy(links = links, busy = false, refreshing = false) }
+            }
+        }
+    }
+
+    /** Revoking is immediate and total (SDD.md 4.3), so the first press only asks. */
+    fun askRevoke(shareLinkId: String) {
+        _screen.update<Screen.Shared> { it.copy(revoking = shareLinkId, error = null) }
+    }
+
+    fun cancelRevoke() {
+        _screen.update<Screen.Shared> { it.copy(revoking = null) }
+    }
+
+    fun confirmRevoke() {
+        val id = (_screen.value as? Screen.Shared)?.revoking ?: return
+        scope.launch {
+            onShared { api ->
+                api.revokeShareLink(id)
+                held.opened.clear()
+                val links = held.shared.orEmpty().filterNot { it.link.id == id }
+                held.shared = links
+                _screen.update<Screen.Shared> { it.copy(links = links, revoking = null, busy = false) }
+            }
+        }
+    }
+
+    private suspend fun onShared(block: suspend (MantelApi) -> Unit) {
+        _screen.update<Screen.Shared> { it.copy(busy = true, error = null, retryable = false) }
+        withApi(
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Shared> {
+                    it.copy(busy = false, refreshing = false, error = message, retryable = retryable)
+                }
+            },
+        ) { api -> block(api) }
+    }
+
+    // --- trash --------------------------------------------------------------------------------
+
+    fun openTrash() {
+        push(Screen.Trash())
+        refreshTrash()
+    }
+
+    private fun refreshTrash() {
+        scope.launch { onTrash { api -> reloadTrash(api) } }
+    }
+
+    private suspend fun reloadTrash(api: MantelApi) {
+        val page = api.trash(limit = LIBRARY_PAGE)
+        val ids = page.items.map { it.id }.toSet()
+        _screen.update<Screen.Trash> {
+            it.copy(
+                items = page.items,
+                totalItems = page.totalItems,
+                cursor = page.next,
+                selected = it.selected intersect ids,
+                confirmingRemove = false,
+                busy = false,
+            )
+        }
+    }
+
+    fun loadMoreTrash() {
+        val state = _screen.value as? Screen.Trash ?: return
+        val cursor = state.cursor ?: return
+        if (state.loadingMore) return
+        _screen.update<Screen.Trash> { it.copy(loadingMore = true) }
+        scope.launch {
+            withApi(
+                onApiError = { message, retryable ->
+                    _screen.update<Screen.Trash> { it.copy(loadingMore = false, error = message, retryable = retryable) }
+                },
+            ) { api ->
+                val page = api.trash(after = cursor, limit = LIBRARY_PAGE)
+                val current = _screen.value as? Screen.Trash ?: return@withApi
+                if (current.cursor != cursor) return@withApi
+                _screen.update<Screen.Trash> {
+                    it.copy(items = current.items + page.items, cursor = page.next, loadingMore = false)
+                }
+            }
+        }
+    }
+
+    fun toggleTrashSelection(itemId: String) {
+        _screen.update<Screen.Trash> { state ->
+            val next = state.selected.toMutableSet()
+            if (!next.add(itemId)) next.remove(itemId)
+            state.copy(selected = next, confirmingRemove = false, error = null)
+        }
+    }
+
+    /** Back into the library, and into every album each one was in. */
+    fun restoreSelection() {
+        val state = _screen.value as? Screen.Trash ?: return
+        scope.launch {
+            onTrash { api ->
+                state.selected.forEach { api.restore(it) }
+                forgetMedia()
+                _screen.update<Screen.Trash> { it.copy(selected = emptySet()) }
+                reloadTrash(api)
+            }
+        }
+    }
+
+    fun askRemoveForGood() {
+        _screen.update<Screen.Trash> { it.copy(confirmingRemove = true) }
+    }
+
+    fun cancelRemove() {
+        _screen.update<Screen.Trash> { it.copy(confirmingRemove = false) }
+    }
+
+    /** Gone now rather than in 30 days: the bytes, and the space they held. The phone keeps its copy. */
+    fun removeSelectionForGood() {
+        val state = _screen.value as? Screen.Trash ?: return
+        if (!state.confirmingRemove) return
+        scope.launch {
+            onTrash { api ->
+                state.selected.forEach { api.removeFromTrash(it) }
+                _screen.update<Screen.Trash> { it.copy(selected = emptySet()) }
+                reloadTrash(api)
+            }
+        }
+    }
+
+    private suspend fun onTrash(block: suspend (MantelApi) -> Unit) {
+        _screen.update<Screen.Trash> { it.copy(busy = true, error = null, retryable = false) }
+        withApi(
+            onApiError = { message, retryable ->
+                _screen.update<Screen.Trash> { it.copy(busy = false, error = message, retryable = retryable) }
+            },
+        ) { api -> block(api) }
+    }
+
+    /** A change to what the library holds changes the library, its albums and their counts. */
+    private fun forgetMedia() {
+        held.library = null
+        held.albums = null
+        held.opened.clear()
+    }
+
     // --- upload -------------------------------------------------------------------------------
 
     fun pickMedia() {
@@ -927,7 +1671,22 @@ class AppModel(
             }
     }
 
+    // debounce is a preview API in this coroutines release. It is used for a burst of MediaStore
+    // changes, where a change of its behaviour would cost one extra read of the camera roll.
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     private fun watchBackup() {
+        // Existing installs armed nothing new when they updated; this arms the trigger for a new
+        // photograph, and re-reads the schedule, once per session.
+        scope.launch { backup.reschedule() }
+        lineWatch?.cancel()
+        lineWatch =
+            scope.launch {
+                // A photograph taken while the app is open appears at once, and the line counts it.
+                launch { phone.changes().debounce(ROLL_SETTLES_MS).collect { rereadRoll() } }
+                combine(backup.state, backup.conditions, _backupStatus, rollNow) { state, conditions, upload, roll ->
+                    backupLine(state, conditions, upload, waiting = roll.count { it.added > state.watermark })
+                }.collect { _backupLine.value = it }
+            }
         backupWatch?.cancel()
         backupWatch =
             scope.launch {
@@ -942,11 +1701,12 @@ class AppModel(
                                     index = report.index,
                                     count = report.count,
                                 )
-                        is UploadReport.Failed -> _backupStatus.value = UploadStatus("", 0, 0, 0, 0, report.message)
+                        is UploadReport.Failed ->
+                            _backupStatus.value = UploadStatus("", 0, 0, 0, 0, report.message, report.code)
                         is UploadReport.Finished -> {
                             _backupStatus.value = null
                             held.library = null
-                            if (_screen.value is Screen.Library) refreshLibrary()
+                            if (_screen.value is Screen.Photos) refreshPhotos()
                         }
                     }
                 }
@@ -964,7 +1724,10 @@ class AppModel(
         when (_screen.value) {
             is Screen.Albums -> refreshAlbums()
             is Screen.Album -> refreshAlbum()
+            is Screen.Photos -> refreshPhotos()
             is Screen.Library -> refreshLibrary()
+            is Screen.Shared -> refreshShared()
+            is Screen.Trash -> refreshTrash()
             else -> Unit
         }
     }
@@ -976,9 +1739,13 @@ class AppModel(
                 _screen.update<Screen.Albums> { it.copy(refreshing = true) }
                 refreshAlbums()
             }
-            is Screen.Library -> {
-                _screen.update<Screen.Library> { it.copy(refreshing = true) }
-                refreshLibrary()
+            is Screen.Photos -> {
+                _screen.update<Screen.Photos> { it.copy(refreshing = true) }
+                refreshPhotos()
+            }
+            is Screen.Shared -> {
+                _screen.update<Screen.Shared> { it.copy(refreshing = true) }
+                refreshShared()
             }
             else -> Unit
         }
@@ -1044,8 +1811,8 @@ class AppModel(
 
     // --- plumbing -----------------------------------------------------------------------------
 
-    private suspend fun onAlbums(block: suspend (MantelApi, Me) -> Unit) {
-        val state = _screen.value as? Screen.Albums ?: return
+    private suspend fun onAlbums(block: suspend (MantelApi) -> Unit) {
+        if (_screen.value !is Screen.Albums) return
         _screen.update<Screen.Albums> { it.copy(busy = true, error = null, retryable = false) }
         withApi(
             onApiError = { message, retryable ->
@@ -1053,7 +1820,7 @@ class AppModel(
                     it.copy(busy = false, refreshing = false, error = message, retryable = retryable)
                 }
             },
-        ) { api -> block(api, state.me) }
+        ) { api -> block(api) }
     }
 
     private suspend fun onAlbum(block: suspend (MantelApi, AlbumView) -> Unit) {
@@ -1105,8 +1872,23 @@ class AppModel(
     }
 
     private companion object {
-        /** Three columns of sixty is well past one screenful, and it is one request. */
-        const val LIBRARY_PAGE = 60
+        /** Well past one screenful at the densest grid, and it is one request. */
+        const val LIBRARY_PAGE = 120
+
+        /** A page of the trash. Thirty days of deletions is one or two of these. */
+        const val TRASH_PAGE = 500
+
+        /** More photographs than the densest grid shows on one screen. */
+        const val FIRST_SCREEN = 120
+
+        /** Photographs to a row, from close to far. */
+        val DENSITIES = listOf(3, 4, 6)
+
+        /** How close to the end of what is loaded a swipe in the viewer asks for the next page. */
+        const val VIEWER_LOOKAHEAD = 10
+
+        /** A photograph arrives as several MediaStore changes in a burst; the roll is read once after them. */
+        const val ROLL_SETTLES_MS = 500L
     }
 }
 
