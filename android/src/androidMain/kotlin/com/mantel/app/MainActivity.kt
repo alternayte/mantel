@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import com.mantel.app.media.SyncScreen
 import com.mantel.app.share.SharedScreen
 import com.mantel.app.timeline.PhotosScreen
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -85,6 +87,12 @@ class MainActivity : ComponentActivity() {
         model = AppModel(this, lifecycleScope)
 
         setContent {
+            // "Fully drawn" is the first frame with photographs on it, which is what opening the
+            // app is for: the cold-start budget is measured to this, not to an empty screen.
+            LaunchedEffect(Unit) {
+                model.screen.first { it is Screen.Photos && it.timeline.tiles.isNotEmpty() }
+                reportFullyDrawn()
+            }
             val screen by model.screen.collectAsState()
             val upload by model.upload.collectAsState()
             val effect by model.effects.collectAsState()

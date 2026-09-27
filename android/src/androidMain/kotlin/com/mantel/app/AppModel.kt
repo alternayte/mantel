@@ -351,10 +351,10 @@ class AppModel(
     }
 
     fun resumed(value: Boolean) {
-        resumed.value = value
         // Back from the camera: the photograph just taken belongs on the timeline now, before any
-        // backup has seen it.
-        if (value) rereadRoll()
+        // backup has seen it. The first resume is the app opening, which reads the phone anyway.
+        if (value && !resumed.value) rereadRoll()
+        resumed.value = value
     }
 
     /** The phone's photographs, read again after the camera roll changed. */
@@ -466,6 +466,18 @@ class AppModel(
                 return@launch
             }
             if (session != null) {
+                // Photos opens on the account this phone last saw, at once: the photographs on the
+                // phone need nothing from the server, and waiting for a round trip before drawing
+                // them was most of a cold start. The session is confirmed underneath, and a session
+                // the server refuses still signs out.
+                val lastSeen = settings.me.first()
+                if (lastSeen != null) {
+                    account = lastSeen
+                    watchBackup()
+                    home()
+                    confirmSession(serverUrl, session)
+                    return@launch
+                }
                 try {
                     val me = api(serverUrl, session).use { it.me() }
                     settings.setMe(me)
@@ -474,19 +486,7 @@ class AppModel(
                     home()
                     return@launch
                 } catch (e: java.io.IOException) {
-                    // Offline is not signed out. The session is still good, so the app opens on
-                    // the account it last saw and offers to ask again.
-                    val cached = settings.me.first()
-                    if (cached != null) {
-                        account = cached
-                        root(
-                            photosScreen().copy(
-                                error = "That server did not answer. You may be offline.",
-                                retryable = true,
-                            ),
-                        )
-                        return@launch
-                    }
+                    // Offline with no account seen yet: there is nothing to open on but sign-in.
                     root(
                         Screen.SignIn(
                             serverUrl = serverUrl,
@@ -501,6 +501,23 @@ class AppModel(
             }
             root(Screen.SignIn(serverUrl = serverUrl))
             loadMethods(serverUrl)
+        }
+    }
+
+    /** The session, asked about after Photos is already on the screen. */
+    private suspend fun confirmSession(
+        serverUrl: String,
+        session: String,
+    ) {
+        try {
+            val me = api(serverUrl, session).use { it.me() }
+            settings.setMe(me)
+            account = me
+        } catch (e: java.io.IOException) {
+            // Offline is not signed out; Photos says the server did not answer when it tries.
+        } catch (e: ApiException) {
+            // The server answered and refused: this session is over.
+            signOut()
         }
     }
 
@@ -803,6 +820,13 @@ class AppModel(
         scope.launch {
             val access = phone.hasAccess()
             if (access) {
+                // A cold start holds nothing, so the first screen is drawn from the newest photographs
+                // before the whole camera roll has been read. A person opened the app to see them.
+                if (held.roll == null) {
+                    val first = phone.roll(newest = FIRST_SCREEN)
+                    _screen.update<Screen.Photos> { it.copy(roll = first, phoneAccess = true) }
+                    rebuildTimeline()
+                }
                 val roll = phone.roll()
                 held.roll = roll
                 rollNow.value = roll
@@ -1583,6 +1607,9 @@ class AppModel(
             }
     }
 
+    // debounce is a preview API in this coroutines release. It is used for a burst of MediaStore
+    // changes, where a change of its behaviour would cost one extra read of the camera roll.
+    @OptIn(kotlinx.coroutines.FlowPreview::class)
     private fun watchBackup() {
         // Existing installs armed nothing new when they updated; this arms the trigger for a new
         // photograph, and re-reads the schedule, once per session.
@@ -1783,6 +1810,9 @@ class AppModel(
     private companion object {
         /** Well past one screenful at the densest grid, and it is one request. */
         const val LIBRARY_PAGE = 120
+
+        /** More photographs than the densest grid shows on one screen. */
+        const val FIRST_SCREEN = 120
 
         /** Photographs to a row, from close to far. */
         val DENSITIES = listOf(3, 4, 6)

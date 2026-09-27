@@ -105,7 +105,7 @@ class FakePhoneMedia(
 
     override fun hasAccess() = access
 
-    override suspend fun roll() = if (access) photos else emptyList()
+    override suspend fun roll(newest: Int?) = if (access) photos.take(newest ?: photos.size) else emptyList()
 
     override fun hashWhenCharging() {
         hashingAskedFor++

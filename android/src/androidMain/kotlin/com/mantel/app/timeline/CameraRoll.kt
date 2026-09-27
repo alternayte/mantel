@@ -48,8 +48,11 @@ interface PhoneMedia {
     /** Whether the app may read the phone's photographs at all. */
     fun hasAccess(): Boolean
 
-    /** The camera roll, newest first, each with the hash the index holds for it. */
-    suspend fun roll(): List<RollPhoto>
+    /**
+     * The camera roll, newest first, each with the hash the index holds for it. With [newest], only
+     * that many: a cold start draws the first screen from them before it reads the rest.
+     */
+    suspend fun roll(newest: Int? = null): List<RollPhoto>
 
     /** Hashes what the index lacks, the next time the phone is charging. */
     fun hashWhenCharging()
@@ -66,14 +69,17 @@ class DevicePhoneMedia(private val context: Context) : PhoneMedia {
             ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
         }
 
-    override suspend fun roll(): List<RollPhoto> =
+    override suspend fun roll(newest: Int?): List<RollPhoto> =
         withContext(Dispatchers.IO) {
             if (!hasAccess()) return@withContext emptyList()
-            val photos = CameraRoll.read(context, CameraRoll.folders(context))
+            val photos = CameraRoll.read(context, CameraRoll.folders(context), newest)
             val known = index.all().associateBy { it.uri }
-            // A row for a file that is gone is forgotten, in chunks the database will take.
-            val present = photos.mapTo(HashSet()) { it.uri }
-            known.keys.filterNot { it in present }.chunked(500).forEach { index.forget(it) }
+            // A row for a file that is gone is forgotten, in chunks the database will take. Only a
+            // whole read can say what is gone.
+            if (newest == null) {
+                val present = photos.mapTo(HashSet()) { it.uri }
+                known.keys.filterNot { it in present }.chunked(500).forEach { index.forget(it) }
+            }
             photos.map { photo ->
                 val entry = known[photo.uri]
                 val current = entry != null && entry.size == photo.size && entry.dateModified == photo.dateModified
@@ -115,10 +121,14 @@ object CameraRoll {
         return DeviceMedia.folders(context).filter { it.name == DeviceMedia.CAMERA }.map { it.id }.toSet()
     }
 
-    /** Every photograph and video in the folders, newest first. A pending file is not one yet. */
+    /**
+     * Every photograph and video in the folders, newest first, or the newest few of each. A pending
+     * file is not one yet.
+     */
     fun read(
         context: Context,
         folders: Set<String>,
+        newest: Int? = null,
     ): List<RollPhoto> {
         if (folders.isEmpty()) return emptyList()
         val found = ArrayList<RollPhoto>()
@@ -137,7 +147,19 @@ object CameraRoll {
             var selection = "${MediaStore.MediaColumns.BUCKET_ID} IN (${folders.joinToString(",") { "?" }})"
             // MediaStore hides a file still being written from other apps, and so does this.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) selection += " AND ${MediaStore.MediaColumns.IS_PENDING} = 0"
-            context.contentResolver.query(collection, columns.toTypedArray(), selection, folders.toTypedArray(), null)
+            val arguments =
+                android.os.Bundle().apply {
+                    putString(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                    putStringArray(android.content.ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, folders.toTypedArray())
+                    if (newest != null) {
+                        putString(
+                            android.content.ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+                            "${MediaStore.Images.ImageColumns.DATE_TAKEN} DESC, ${MediaStore.MediaColumns.DATE_ADDED} DESC",
+                        )
+                        putInt(android.content.ContentResolver.QUERY_ARG_LIMIT, newest)
+                    }
+                }
+            context.contentResolver.query(collection, columns.toTypedArray(), arguments, null)
                 ?.use { cursor ->
                     val id = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
                     val taken = cursor.getColumnIndexOrThrow(MediaStore.Images.ImageColumns.DATE_TAKEN)
