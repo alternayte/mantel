@@ -10,7 +10,10 @@ enum class ItemState {
     UPLOADED,
     PROCESSING,
 
-    /** The library holds the original and a thumbnail. Nothing renders it for a viewer yet. */
+    /**
+     * The library holds the original, a thumbnail and a display WebP (a video's poster), so its
+     * owner can see it. Nothing renders it for a recipient yet.
+     */
     BACKED_UP,
 
     /** Every derivative exists, so an album holding this item can publish. */
@@ -35,8 +38,8 @@ sealed interface ItemEvent {
     /** Every derivative is written. */
     data object DerivativesWritten : ItemEvent
 
-    /** The thumbnail is written and nothing else was asked for. */
-    data object ThumbnailWritten : ItemEvent
+    /** What the library needs is written, and nothing a recipient needs was asked for. */
+    data object LibraryDerivativesWritten : ItemEvent
 
     /** A backed-up item joined an album, so the rest of its derivatives are now wanted. */
     data object AlbumJoined : ItemEvent
@@ -77,7 +80,7 @@ fun transition(
         ItemState.PROCESSING ->
             when (event) {
                 ItemEvent.DerivativesWritten -> ItemState.SHAREABLE
-                ItemEvent.ThumbnailWritten -> ItemState.BACKED_UP
+                ItemEvent.LibraryDerivativesWritten -> ItemState.BACKED_UP
                 is ItemEvent.Exhausted -> ItemState.FAILED
                 ItemEvent.Requeued, ItemEvent.ClaimExpired -> ItemState.UPLOADED
                 else -> throw IllegalTransition(state, event)

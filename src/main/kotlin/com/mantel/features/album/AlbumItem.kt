@@ -24,6 +24,9 @@ import java.time.OffsetDateTime
  * Position and caption live here rather than on the media item, because they are properties of the
  * membership: the same photograph sits in two albums at different places with different words under
  * it. Removing this row takes the photograph out of the album and leaves it in the library.
+ *
+ * A media item in the trash keeps its membership and is left out of every read of the album, so a
+ * restore puts it back where it was.
  */
 object AlbumItems : Table("album_item") {
     val albumId = reference("album_id", Albums.id, onDelete = ReferenceOption.CASCADE, onUpdate = ReferenceOption.NO_ACTION)
@@ -46,6 +49,13 @@ fun addToAlbum(
     now: OffsetDateTime,
 ) {
     val item = MediaItems.selectAll().where { MediaItems.id eq itemId }.single()
+    if (item[MediaItems.trashedAt] != null) {
+        throw DomainException(
+            ErrorCode.CONFLICT,
+            "${item[MediaItems.filename] ?: "That item"} is in the trash. Restore it to put it in an album",
+            mapOf("itemId" to itemId.toString()),
+        )
+    }
     if (!item[MediaItems.renderable]) {
         throw DomainException(
             ErrorCode.VALIDATION_FAILED,
@@ -81,11 +91,32 @@ fun addToAlbum(
     }
 }
 
-/** An album's size and weight, counted from its membership rather than kept in step by hand. */
-fun albumSizeOf(albumId: AlbumId): Int = AlbumItems.selectAll().where { AlbumItems.albumId eq albumId }.count().toInt()
+/**
+ * An album's size and weight, counted from its membership rather than kept in step by hand. The
+ * trash is not in the album.
+ */
+fun albumSizeOf(albumId: AlbumId): Int =
+    (AlbumItems innerJoin MediaItems)
+        .selectAll()
+        .where { (AlbumItems.albumId eq albumId) and MediaItems.trashedAt.isNull() }
+        .count()
+        .toInt()
 
 fun albumBytesOf(albumId: AlbumId): Bytes =
     (AlbumItems innerJoin MediaItems)
         .selectAll()
-        .where { AlbumItems.albumId eq albumId }
+        .where { (AlbumItems.albumId eq albumId) and MediaItems.trashedAt.isNull() }
         .fold(Bytes.NONE) { total, row -> total + row[MediaItems.byteSize] }
+
+/** Counts and weight again after a change to what the album holds, and its status with them. */
+fun recountAlbum(
+    albumId: AlbumId,
+    now: OffsetDateTime,
+) {
+    Albums.update({ Albums.id eq albumId }) {
+        it[itemCount] = albumSizeOf(albumId)
+        it[totalBytes] = albumBytesOf(albumId)
+        it[updatedAt] = now
+    }
+    settleAlbum(albumId, now)
+}

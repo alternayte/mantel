@@ -10,8 +10,8 @@ import org.jetbrains.exposed.sql.selectAll
 import java.util.UUID
 
 /**
- * Comparable because the library pages by id. Ids are UUIDv7 and sort by creation time, so "the
- * next page" is "ids below this one" and stays correct while new media arrives at the front.
+ * Comparable because the library breaks a tie on `taken_at` by id. Ids are UUIDv7 and sort by
+ * creation time, so two photographs taken in the same instant still have one order.
  */
 @JvmInline
 value class ItemId(val value: UUID) : Comparable<ItemId> {
@@ -85,10 +85,20 @@ object MediaItems : Table("media_item") {
     val createdAt = timestampWithTimeZone("created_at")
     val readyAt = timestampWithTimeZone("ready_at").nullable()
 
+    /** From the file where it can be read, from the client's declaration where not, upload time last. */
+    val takenAt = timestampWithTimeZone("taken_at")
+
+    /** Set while the item is in the trash. The sweep removes it 30 days after this. */
+    val trashedAt = timestampWithTimeZone("trashed_at").nullable()
+
     override val primaryKey = PrimaryKey(id)
 }
 
-/** The media item an account already holds with these bytes, or null. */
+/**
+ * The media item an account already holds with these bytes, or null. An item in the trash is still
+ * held: its bytes are in storage, and a backup that offers the photograph again must not undo a
+ * deletion.
+ */
 fun held(
     accountId: com.mantel.features.account.AccountId,
     contentHash: String,
@@ -96,6 +106,14 @@ fun held(
     MediaItems.selectAll()
         .where { (MediaItems.accountId eq accountId) and (MediaItems.contentHash eq contentHash) }
         .singleOrNull()
+
+/**
+ * A moment a photograph was taken, as a client or the worker states it: an ISO-8601 instant, or a
+ * date-time with an offset. A local time with no offset names no moment and is refused.
+ */
+fun parseTakenAt(raw: String): java.time.OffsetDateTime =
+    runCatching { java.time.OffsetDateTime.parse(raw).withOffsetSameInstant(java.time.ZoneOffset.UTC) }.getOrNull()
+        ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "$raw is not a moment in time", mapOf("takenAt" to raw))
 
 /** The extension of a file the pipelines cannot classify. The name is all there is to go on. */
 fun extensionOf(filename: String): String =

@@ -23,8 +23,13 @@ import com.mantel.features.auth.getSignInMethods
 import com.mantel.features.auth.requestMagicLink
 import com.mantel.features.auth.revokeSession
 import com.mantel.features.auth.startGitHubOAuth
-import com.mantel.features.library.deleteFromLibrary
 import com.mantel.features.library.getLibrary
+import com.mantel.features.library.getTrash
+import com.mantel.features.library.removeFromTrash
+import com.mantel.features.library.restoreItem
+import com.mantel.features.library.sweepTrash
+import com.mantel.features.library.trashItem
+import com.mantel.features.media.claimBackfill
 import com.mantel.features.media.claimWork
 import com.mantel.features.media.classifyObjects
 import com.mantel.features.media.completeLibraryUploads
@@ -37,6 +42,8 @@ import com.mantel.features.media.removeFromAlbum
 import com.mantel.features.media.reorderItems
 import com.mantel.features.media.repairQuota
 import com.mantel.features.media.reportDerivatives
+import com.mantel.features.media.reportDisplay
+import com.mantel.features.media.reportDisplayFailure
 import com.mantel.features.media.reportFailure
 import com.mantel.features.media.reportHeartbeat
 import com.mantel.features.media.retryItem
@@ -170,7 +177,11 @@ fun Application.module(services: Services) {
         get("/api/library/{itemId}/upload-progress") {
             getLibraryUploadProgress(call, services.config, services.storage)
         }
-        delete("/api/library/{itemId}") { deleteFromLibrary(call, services.storage, services.clock) }
+        // Delete moves to the trash; the trash is the only place an item leaves for good.
+        delete("/api/library/{itemId}") { trashItem(call, services.clock) }
+        post("/api/library/{itemId}/restore") { restoreItem(call, services.clock) }
+        get("/api/library/trash") { getTrash(call, services.storage) }
+        delete("/api/library/trash/{itemId}") { removeFromTrash(call, services.storage, services.clock) }
 
         get("/api/albums") { listAlbums(call) }
         post("/api/albums") { createAlbum(call) }
@@ -235,7 +246,13 @@ fun Application.module(services: Services) {
         post("/api/worker/reconcile/abandoned") {
             sweepAbandonedUploads(call, services.storage, services.config, services.clock)
         }
+        post("/api/worker/reconcile/trash") { sweepTrash(call, services.storage, services.config, services.clock) }
         post("/api/worker/reconcile/quota") { repairQuota(call, services.config) }
+        post("/api/worker/backfill/claim") { claimBackfill(call, services.config, services.clock) }
+        post("/api/worker/items/{itemId}/display") { reportDisplay(call, services.config, services.clock) }
+        post("/api/worker/items/{itemId}/display/failure") {
+            reportDisplayFailure(call, services.config, services.clock)
+        }
 
         post("/api/worker/bundles/claim") { claimBundles(call, services.config, services.clock) }
         post("/api/worker/bundles/{bundleId}/built") { reportBundleBuilt(call, services.config, services.clock) }

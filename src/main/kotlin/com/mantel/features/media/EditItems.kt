@@ -35,7 +35,8 @@ data class CaptionRequest(val caption: String? = null)
 
 /**
  * The client sends the album's items in their new order, all of them. A partial reorder would need
- * the server to guess what happened to the rest.
+ * the server to guess what happened to the rest. An item in the trash is not one the client can
+ * see, so it is not named; it keeps its order behind the rest and returns at the end on a restore.
  */
 suspend fun reorderItems(
     call: ApplicationCall,
@@ -68,8 +69,8 @@ suspend fun reorderItemsFor(
 
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
     db {
-        val existing =
-            AlbumItems.selectAll().where { AlbumItems.albumId eq albumId }.map { it[AlbumItems.mediaItemId] }.toSet()
+        val members = com.mantel.features.album.itemsOf(albumId).map { it[AlbumItems.mediaItemId] }
+        val existing = members.toSet()
         if (requested.toSet() != existing) {
             throw DomainException(
                 ErrorCode.VALIDATION_FAILED,
@@ -77,7 +78,13 @@ suspend fun reorderItemsFor(
                 mapOf("expected" to existing.size.toString(), "received" to requested.size.toString()),
             )
         }
-        requested.forEachIndexed { index, itemId ->
+        val trashed =
+            AlbumItems.selectAll()
+                .where { AlbumItems.albumId eq albumId }
+                .orderBy(AlbumItems.position)
+                .map { it[AlbumItems.mediaItemId] }
+                .filterNot { it in existing }
+        (requested + trashed).forEachIndexed { index, itemId ->
             AlbumItems.update({ (AlbumItems.albumId eq albumId) and (AlbumItems.mediaItemId eq itemId) }) {
                 it[position] = index
             }

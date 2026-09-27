@@ -124,5 +124,7 @@ fun bundleFilename(
 fun readyItemCount(albumId: AlbumId): Long =
     (AlbumItems innerJoin MediaItems)
         .selectAll()
-        .where { (AlbumItems.albumId eq albumId) and (MediaItems.status eq ItemState.SHAREABLE) }
+        .where {
+            (AlbumItems.albumId eq albumId) and (MediaItems.status eq ItemState.SHAREABLE) and MediaItems.trashedAt.isNull()
+        }
         .count()

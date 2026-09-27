@@ -2,6 +2,8 @@ package com.mantel.worker
 
 import com.mantel.features.album.AlbumProgress
 import com.mantel.features.album.AlbumSummary
+import com.mantel.features.media.ItemState
+import com.mantel.features.media.MediaItems
 import com.mantel.features.media.UploadIntentResponse
 import com.mantel.support.Harness
 import com.mantel.support.TEST_WORKER_TOKEN
@@ -21,6 +23,7 @@ import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.testing.ApplicationTestBuilder
 import kotlinx.serialization.json.Json
+import org.jetbrains.exposed.sql.update
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -119,6 +122,7 @@ class WorkerEndToEndTest {
             assertEquals("video", progress.items.single().kind)
             assertEquals(1280, progress.items.single().width)
             assertTrue(progress.items.single().durationMs!! in 1_500..2_500)
+            assertEquals("2021-03-04T05:06:07Z", progress.items.single().takenAt)
 
             val prefix = originalKey.substringBeforeLast('/')
             listOf("$prefix/thumb.webp", "$prefix/poster.webp", "$prefix/display.mp4").forEach { key ->
@@ -130,6 +134,88 @@ class WorkerEndToEndTest {
             )
         }
 
+    private fun fixture(name: String): ByteArray = WorkerEndToEndTest::class.java.getResourceAsStream("/$name")!!.use { it.readBytes() }
+
+    /** The width libvips reads from a derivative the worker wrote. */
+    private fun widthOf(bytes: ByteArray): Int {
+        val file = java.nio.file.Files.createTempFile("mantel-derivative", ".webp")
+        java.nio.file.Files.write(file, bytes)
+        return PhotoPipeline().widthOf(file)
+    }
+
+    @Test
+    fun `a photograph backed up from the web carries the date its file records, and a display WebP`() =
+        withApp { harness ->
+            val creator = signedIn(harness)
+            val photo = fixture("exif-taken.jpg")
+            val intent =
+                json.decodeFromString<UploadIntentResponse>(
+                    creator.post("/api/library/upload-intent") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"files":[{"filename":"harbour.jpg","contentType":"image/jpeg","sizeBytes":${photo.size}}]}""")
+                    }.bodyAsText(),
+                )
+            val itemId = intent.items.single().itemId
+            val originalKey = harness.storage.presigns.single().key
+            harness.storage.objects[originalKey] = photo
+            creator.post("/api/library/uploads/complete") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"itemIds":["$itemId"]}""")
+            }
+
+            assertEquals(1, workerAgainstThisApp(harness).tick())
+
+            val item = creator.library().items.single()
+            assertEquals("backed_up", item.status)
+            // The camera wrote no offset, so the wall clock it recorded is the time shown.
+            assertEquals("2019-07-14T16:20:05Z", item.takenAt)
+            val prefix = originalKey.substringBeforeLast('/')
+            assertEquals("https://storage.test/$prefix/display.webp?signed-for=hour", item.displayUrl)
+            assertEquals(1600, widthOf(harness.storage.objects["$prefix/display.webp"]!!))
+            // Nothing a recipient needs: the library item is in no album.
+            assertEquals(null, harness.storage.objects["$prefix/display.avif"])
+        }
+
+    @Test
+    fun `a photograph backed up before display WebPs existed gets one from the backfill`() =
+        withApp { harness ->
+            val creator = signedIn(harness)
+            val photo = fixture("exif-taken.jpg")
+            val intent =
+                json.decodeFromString<UploadIntentResponse>(
+                    creator.post("/api/library/upload-intent") {
+                        contentType(ContentType.Application.Json)
+                        setBody("""{"files":[{"filename":"harbour.jpg","contentType":"image/jpeg","sizeBytes":${photo.size}}]}""")
+                    }.bodyAsText(),
+                )
+            val itemId = com.mantel.features.media.ItemId(java.util.UUID.fromString(intent.items.single().itemId))
+            val originalKey = harness.storage.presigns.single().key
+            val prefix = originalKey.substringBeforeLast('/')
+            harness.storage.objects[originalKey] = photo
+            harness.storage.objects["$prefix/thumb.webp"] = "thumbnail".toByteArray()
+            // What 0.5 left behind: backed up with a thumbnail and nothing else.
+            org.jetbrains.exposed.sql.transactions.transaction {
+                MediaItems.update({ MediaItems.id eq itemId }) {
+                    it[status] = ItemState.BACKED_UP
+                    it[thumbKey] = "$prefix/thumb.webp"
+                }
+            }
+            assertEquals(null, creator.library().items.single().displayUrl)
+
+            val worker = workerAgainstThisApp(harness)
+            assertEquals(1, worker.tick())
+            assertEquals(0, worker.tick(), "a backfilled photograph is not offered again")
+
+            val item = creator.library().items.single()
+            assertEquals("backed_up", item.status)
+            assertEquals("https://storage.test/$prefix/display.webp?signed-for=hour", item.displayUrl)
+            assertEquals(1600, widthOf(harness.storage.objects["$prefix/display.webp"]!!))
+            assertEquals("2019-07-14T16:20:05Z", item.takenAt)
+        }
+
+    private suspend fun io.ktor.client.HttpClient.library() =
+        json.decodeFromString<com.mantel.features.library.LibraryPage>(get("/api/library").bodyAsText())
+
     /** Two seconds of 720p. The 4K case is VideoPipelineTest's; this one proves the wiring. */
     private fun shortClip(): ByteArray {
         val scratch = java.nio.file.Files.createTempDirectory("mantel-e2e-clip")
@@ -138,7 +224,10 @@ class WorkerEndToEndTest {
             ProcessBuilder(
                 "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
                 "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=24",
-                "-t", "2", "-c:v", "libx264", "-preset", "ultrafast", file.toString(),
+                "-t", "2", "-c:v", "libx264", "-preset", "ultrafast",
+                // What a phone writes when it films, in UTC.
+                "-metadata", "creation_time=2021-03-04T05:06:07.000000Z",
+                file.toString(),
             ).redirectErrorStream(true).start()
         val output = process.inputStream.bufferedReader().readText()
         process.waitFor(5, java.util.concurrent.TimeUnit.MINUTES)

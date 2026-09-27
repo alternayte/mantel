@@ -35,6 +35,8 @@ data class DerivativesWrittenRequest(
     val width: Int,
     val height: Int,
     val durationMs: Int? = null,
+    /** When the file says it was taken, if it says. It replaces what the client declared. */
+    val takenAt: String? = null,
 )
 
 @Serializable
@@ -59,6 +61,7 @@ suspend fun reportDerivatives(
     requireWorker(call, config)
     val itemId = itemIdOf(call)
     val report = call.receive<DerivativesWrittenRequest>()
+    val takenAt = report.takenAt?.let { parseTakenAt(it) }
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
 
     val outcome =
@@ -67,13 +70,14 @@ suspend fun reportDerivatives(
                 MediaItems.selectAll().where { MediaItems.id eq itemId }.singleOrNull()
                     ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
             // What the report contains decides the state, not what the claim asked for. A worker
-            // that wrote a thumbnail and nothing else leaves the item backed up, whatever the
-            // album membership was when the claim went out.
-            val everything = report.displayWebpKey != null || report.mp4Key != null
+            // that wrote only what the library needs — a photograph's thumbnail and display WebP,
+            // a video's thumbnail and poster — leaves the item backed up, whatever the album
+            // membership was when the claim went out. The AVIF and the MP4 are for a recipient.
+            val everything = report.displayAvifKey != null || report.mp4Key != null
             val next =
                 transition(
                     item[MediaItems.status],
-                    if (everything) ItemEvent.DerivativesWritten else ItemEvent.ThumbnailWritten,
+                    if (everything) ItemEvent.DerivativesWritten else ItemEvent.LibraryDerivativesWritten,
                 )
 
             MediaItems.update({ MediaItems.id eq itemId }) {
@@ -86,6 +90,7 @@ suspend fun reportDerivatives(
                 it[width] = report.width
                 it[height] = report.height
                 it[durationMs] = report.durationMs
+                takenAt?.let { value -> it[MediaItems.takenAt] = value }
                 it[lastError] = null
                 it[nextAttemptAt] = null
                 it[readyAt] = now

@@ -193,19 +193,32 @@ original is kept byte-identical.
 
 ### `GET /api/library`
 
-Every media item the account owns, newest first.
+Every media item the account owns, newest `takenAt` first. The trash is not in it.
 
 ```
-GET /api/library?limit=100&after=019b76da-a800-7bf1-b5cd-a8007d792a75
+GET /api/library?limit=100&after=MjAxOS0wNy0xNFQxNjoyMDowNVp8MDE5Yjc2ZGEt…
 ```
 
 ```json
-{ "items": [ … ], "next": "019b76da-…", "totalItems": 4213 }
+{ "items": [ … ], "next": "MjAxOS0wNy0xNFQxNjoyMDowNVp8…", "totalItems": 4213 }
 ```
 
-It pages by item id, not by offset. Ids are UUIDv7 and sort by creation time, so a page boundary
-holds still while new media arrives at the front. Pass the previous page's `next` as `after`;
-`next` is absent on the last page.
+It pages on (`takenAt`, id), not by offset. A backup adds photographs anywhere in the order, and a
+page boundary holds still whatever arrives around it. Pass the previous page's `next` as `after`;
+`next` is opaque, and it is absent on the last page. A bare item id is also accepted as `after`, for
+clients released before the cursor existed.
+
+Each item carries:
+
+- `takenAt`: when the photograph was taken. The worker reads it from the file: EXIF
+  `DateTimeOriginal` for a photograph, with `OffsetTimeOriginal` when the camera wrote one, or a
+  video's `creation_time`. Before that, or when the file says nothing, it is the `takenAt` the upload
+  intent declared, and failing that the upload time.
+- `contentHash`: the SHA-256 the upload intent declared, so a phone can match its camera roll to the
+  library.
+- `thumbUrl`: the 300 px WebP, from the moment the item is `backed_up`.
+- `displayUrl`: the 1600 px WebP for a photograph, the 1600 px poster frame for a video, from the
+  moment the item is `backed_up`. Both URLs are signed by the hour.
 
 ### `POST /api/library/upload-intent`
 
@@ -216,18 +229,46 @@ into an album later.
 
 The same shape as the album completion below. One call for the whole batch.
 
+The upload intent accepts `takenAt` on each file: an ISO-8601 instant, or a date and time with an
+offset. A phone knows it before a byte moves. A local time with no offset is `validation_failed`.
+
 ### `DELETE /api/library/{itemId}`
 
-`204`. This is the only deletion that removes bytes: it deletes the item's objects, returns its
-bytes to the account, and takes the item out of every album that held it.
+`204`. Moves the item to the trash. It leaves the library and every album that holds it, and a
+share link to one of those albums keeps working without it. Deleting it again changes nothing, and
+the 30 days run from the first deletion.
+
+An item in the trash still counts against the account's storage, because its bytes are still in
+storage. Thirty days after deletion the worker's sweep removes its bytes and returns them to the
+account.
+
+An upload intent that names the `contentHash` of an item in the trash answers `alreadyHeld: true`
+and `inTrash: true`, and the item stays in the trash: offering a file again is not a restore. An
+album refuses an item in the trash with `conflict`.
+
+### `POST /api/library/{itemId}/restore`
+
+`204`. Takes the item out of the trash, back into the library and into every album it was in, at
+the place it held. An item that is not in the trash is unchanged.
+
+### `GET /api/library/trash`
+
+The trash, newest deletion first, in the same page shape as the library. Each item carries
+`trashedAt`. Pages on (`trashedAt`, id) with the same opaque `next`.
+
+### `DELETE /api/library/trash/{itemId}`
+
+`204`. Removes an item from the trash now: its objects, its bytes on the account, and its place in
+every album. An item that is not in the trash is `not_found`, so no client removes a photograph for
+good in one step.
 
 ---
 
 ## Albums
 
 An item is `pending_upload`, then `uploaded`, then `processing`, then either `backed_up` or
-`shareable`, or `failed`. `backed_up` means the library holds the original and a thumbnail and
-nothing renders it for a viewer yet; `shareable` means every derivative exists. A share link is
+`shareable`, or `failed`. `backed_up` means the library holds the original, a thumbnail and a
+display WebP (a video's poster) and nothing renders it for a viewer yet; `shareable` means every derivative exists. A share link is
 refused while any item in the album is `backed_up`, and the refusal names the item.
 
 An album is `draft` while it is assembled, `ready` when every item has finished processing,
@@ -395,13 +436,14 @@ Names every item in the album exactly once, in the new order. `204`.
 
 `204`. Puts media that is already in the library into this album, at the end. It costs no quota and
 no upload. An item that is only backed up is asked for the rest of its derivatives here, because
-somebody may now look at it. An item this product cannot render is `validation_failed`.
+somebody may now look at it. An item this product cannot render is `validation_failed`, and an item
+in the trash is `conflict`.
 
 ### `DELETE /api/albums/{id}/items/{itemId}`
 
 `204`. Takes the item out of the album and closes the gap in positions. **It does not delete the
 photograph**: an album is a selection, and unselecting is not deleting. `DELETE
-/api/library/{itemId}` removes the bytes.
+/api/library/{itemId}` moves the photograph to the trash.
 
 ### `POST /api/albums/{id}/items/{itemId}/retry`
 

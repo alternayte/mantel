@@ -103,7 +103,8 @@ suspend fun createShareLinkFor(
                 .selectAll()
                 .where {
                     (com.mantel.features.album.AlbumItems.albumId eq album[Albums.id]) and
-                        (MediaItems.status eq ItemState.BACKED_UP)
+                        (MediaItems.status eq ItemState.BACKED_UP) and
+                        MediaItems.trashedAt.isNull()
                 }
                 .orderBy(com.mantel.features.album.AlbumItems.position)
                 .firstOrNull()
@@ -167,7 +168,9 @@ internal fun coverThumbFor(
     val chosen =
         coverItemId?.let { id ->
             MediaItems.selectAll()
-                .where { (MediaItems.id eq id) and (MediaItems.status eq ItemState.SHAREABLE) }
+                .where {
+                    (MediaItems.id eq id) and (MediaItems.status eq ItemState.SHAREABLE) and MediaItems.trashedAt.isNull()
+                }
                 .singleOrNull()
         }
             ?: com.mantel.features.album.itemsOf(albumId)

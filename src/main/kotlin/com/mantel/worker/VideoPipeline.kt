@@ -5,6 +5,7 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.nio.file.Path
+import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 data class VideoDerivatives(
@@ -14,6 +15,7 @@ data class VideoDerivatives(
     val width: Int,
     val height: Int,
     val durationMs: Int,
+    val takenAt: Instant? = null,
 )
 
 /**
@@ -32,6 +34,7 @@ data class VideoStill(
     val width: Int,
     val height: Int,
     val durationMs: Int,
+    val takenAt: Instant? = null,
 )
 
 class VideoPipeline(
@@ -53,7 +56,7 @@ class VideoPipeline(
         val thumb = into.resolve("thumb.webp")
         photos.thumbnailTo(still, poster, 1600)
         photos.thumbnailTo(still, thumb, 300)
-        return VideoStill(thumb, poster, probe.width, probe.height, (probe.durationSeconds * 1000).toInt())
+        return VideoStill(thumb, poster, probe.width, probe.height, (probe.durationSeconds * 1000).toInt(), probe.takenAt)
     }
 
     /** A frame from a second in, so a clip that fades from black still has a picture on it. */
@@ -111,17 +114,19 @@ class VideoPipeline(
             width = probe.width,
             height = probe.height,
             durationMs = (probe.durationSeconds * 1000).toInt(),
+            takenAt = probe.takenAt,
         )
     }
 
-    data class Probe(val width: Int, val height: Int, val durationSeconds: Double)
+    /** `takenAt` is the container's `creation_time`, which a phone writes in UTC when it films. */
+    data class Probe(val width: Int, val height: Int, val durationSeconds: Double, val takenAt: Instant? = null)
 
     fun probe(source: Path): Probe {
         val output =
             run(
                 ffprobe, "-hide_banner", "-v", "error",
                 "-select_streams", "v:0",
-                "-show_entries", "stream=width,height:format=duration",
+                "-show_entries", "stream=width,height:format=duration:format_tags=creation_time",
                 "-of", "json", source.toString(),
             )
         val root = Json.parseToJsonElement(output).jsonObject
@@ -131,10 +136,15 @@ class VideoPipeline(
         val duration =
             root["format"]?.jsonObject?.get("duration")?.jsonPrimitive?.content?.toDoubleOrNull()
                 ?: throw PipelineFailure("no duration in ${source.fileName}")
+        val created =
+            root["format"]?.jsonObject?.get("tags")?.jsonObject?.get("creation_time")?.jsonPrimitive?.content
+                ?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                ?.takeIf { plausiblyTaken(it) }
         return Probe(
             width = stream["width"]!!.jsonPrimitive.content.toInt(),
             height = stream["height"]!!.jsonPrimitive.content.toInt(),
             durationSeconds = duration,
+            takenAt = created,
         )
     }
 

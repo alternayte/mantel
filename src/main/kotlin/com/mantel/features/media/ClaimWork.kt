@@ -29,9 +29,9 @@ data class ClaimedItem(
     val posterKey: String,
     val mp4Key: String,
     /**
-     * Whether a viewer will see this item. An item that is only being backed up gets a thumbnail
-     * and nothing else: transcoding media nobody shares costs the same as transcoding media
-     * somebody does.
+     * Whether a viewer will see this item. An item that is only being backed up gets what its
+     * owner needs to see it — a thumbnail and a display WebP, or a video's poster — and no AVIF or
+     * MP4: transcoding media nobody shares costs the same as transcoding media somebody does.
      */
     val full: Boolean,
     /** How often to say the job is still running, in seconds. A third of the claim timeout. */

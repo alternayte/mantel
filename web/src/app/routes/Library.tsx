@@ -1,30 +1,40 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState } from 'react'
-import { api, settled, type Item } from '../api'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useRef, useState } from 'react'
+import { api, type Item } from '../api'
 import { Button } from '../components/ui'
 
 /**
- * Every photograph the account owns, newest first.
+ * Every photograph the account owns, newest taken first.
  *
  * It is a grid and a selection and nothing else. Search is what people stay on a photo library for
  * and it is deliberately not here: the library exists so a backup is visible and so an album can be
- * assembled from more than what was uploaded in this session.
+ * assembled from more than what was uploaded in this session. The timeline, the viewer and the trash
+ * belong to the phone; the web deletes to the trash and offers the undo, and nothing more.
  */
 export function Library({ onOpenAlbum, onBack }: { onOpenAlbum: (id: string) => void; onBack: () => void }) {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [target, setTarget] = useState('')
+  // What the last delete sent to the trash. The web has no trash screen, so this is its way back.
+  const [trashed, setTrashed] = useState<string[]>([])
 
-  const library = useQuery({
+  const library = useInfiniteQuery({
     queryKey: ['library'],
-    queryFn: () => api.library(),
-    refetchInterval: (query) => (query.state.data?.items.some((item) => !settled(item.status)) ? 2000 : false),
+    queryFn: ({ pageParam }) => api.library(pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next ?? undefined,
+    // Backed up is finished as far as the library is concerned: it has a thumbnail to show.
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) => page.items.some((item) => !shown(item.status))) ? 2000 : false,
   })
   const albums = useQuery({ queryKey: ['albums'], queryFn: api.albums })
 
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ['library'] })
     void queryClient.invalidateQueries({ queryKey: ['me'] })
+    // A deletion or a restore changes every album that holds the photograph.
+    void queryClient.invalidateQueries({ queryKey: ['albums'] })
+    void queryClient.invalidateQueries({ queryKey: ['album'] })
   }
 
   const addToAlbum = useMutation({
@@ -37,11 +47,23 @@ export function Library({ onOpenAlbum, onBack }: { onOpenAlbum: (id: string) => 
   })
 
   const remove = useMutation({
-    mutationFn: async () => {
-      for (const id of selected) await api.deleteFromLibrary(id)
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) await api.moveToTrash(id)
+      return ids
+    },
+    onSuccess: (ids) => {
+      setSelected(new Set())
+      setTrashed(ids)
+      refresh()
+    },
+  })
+
+  const undo = useMutation({
+    mutationFn: async (ids: string[]) => {
+      for (const id of ids) await api.restoreFromTrash(id)
     },
     onSuccess: () => {
-      setSelected(new Set())
+      setTrashed([])
       refresh()
     },
   })
@@ -54,7 +76,25 @@ export function Library({ onOpenAlbum, onBack }: { onOpenAlbum: (id: string) => 
       return next
     })
 
-  const items = library.data?.items ?? []
+  const pages = library.data?.pages ?? []
+  const items = pages.flatMap((page) => page.items)
+  const total = pages[0]?.totalItems ?? 0
+
+  // The next page loads as the end of the grid comes into view.
+  const end = useRef<HTMLDivElement>(null)
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = library
+  useEffect(() => {
+    const node = end.current
+    if (!node || !hasNextPage) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting) && !isFetchingNextPage) void fetchNextPage()
+      },
+      { rootMargin: '600px' },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage])
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-4 p-6">
@@ -64,7 +104,7 @@ export function Library({ onOpenAlbum, onBack }: { onOpenAlbum: (id: string) => 
         </Button>
         <h1 className="m-0 text-sm uppercase tracking-[0.2em] text-muted">Library</h1>
         <span className="text-xs text-muted">
-          {library.data?.totalItems ?? 0} item{library.data?.totalItems === 1 ? '' : 's'}
+          {total} item{total === 1 ? '' : 's'}
         </span>
       </header>
 
@@ -86,7 +126,7 @@ export function Library({ onOpenAlbum, onBack }: { onOpenAlbum: (id: string) => 
           <Button size="sm" disabled={!target || addToAlbum.isPending} onClick={() => addToAlbum.mutate(target)}>
             Add
           </Button>
-          <Button size="sm" variant="danger" disabled={remove.isPending} onClick={() => remove.mutate()}>
+          <Button size="sm" variant="danger" disabled={remove.isPending} onClick={() => remove.mutate([...selected])}>
             Delete
           </Button>
           <Button size="sm" variant="quiet" onClick={() => setSelected(new Set())}>
@@ -95,7 +135,29 @@ export function Library({ onOpenAlbum, onBack }: { onOpenAlbum: (id: string) => 
         </div>
       )}
 
+      {trashed.length > 0 && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-2 rounded-card border border-line bg-surface-lift p-3"
+        >
+          <span className="text-xs text-muted">
+            {trashed.length === 1 ? 'Moved to the trash' : `${trashed.length} moved to the trash`}. It is kept for 30
+            days.
+          </span>
+          <span className="flex gap-2">
+            <Button size="sm" disabled={undo.isPending} onClick={() => undo.mutate(trashed)}>
+              Undo
+            </Button>
+            <Button size="sm" variant="quiet" aria-label="Dismiss" onClick={() => setTrashed([])}>
+              ×
+            </Button>
+          </span>
+        </div>
+      )}
+
       {addToAlbum.error && <p className="text-xs text-fail">{(addToAlbum.error as Error).message}</p>}
+      {remove.error && <p className="text-xs text-fail">{(remove.error as Error).message}</p>}
+      {undo.error && <p className="text-xs text-fail">{(undo.error as Error).message}</p>}
 
       {items.length === 0 && !library.isLoading && (
         <p className="text-xs text-muted">
@@ -108,17 +170,32 @@ export function Library({ onOpenAlbum, onBack }: { onOpenAlbum: (id: string) => 
           <LibraryTile key={item.id} item={item} chosen={selected.has(item.id)} onToggle={() => toggle(item.id)} />
         ))}
       </ul>
+
+      <div ref={end}>
+        {hasNextPage && (
+          <Button size="sm" variant="quiet" disabled={isFetchingNextPage} onClick={() => void fetchNextPage()}>
+            {isFetchingNextPage ? 'Loading…' : 'More'}
+          </Button>
+        )}
+      </div>
     </main>
   )
 }
 
+/** A library item nothing is waiting on: backed up or shareable has a picture, and failed says so. */
+const shown = (status: string) => status === 'backed_up' || status === 'shareable' || status === 'failed'
+
+const takenFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
+
 function LibraryTile({ item, chosen, onToggle }: { item: Item; chosen: boolean; onToggle: () => void }) {
+  const taken = item.takenAt ? takenFormat.format(new Date(item.takenAt)) : null
   return (
     <li>
       <button
         type="button"
         onClick={onToggle}
         aria-pressed={chosen}
+        title={taken ? `${item.filename ?? 'Photograph'}, taken ${taken}` : (item.filename ?? undefined)}
         className={`relative flex aspect-square w-full items-center justify-center overflow-hidden bg-surface-lift text-xs ${
           chosen ? 'outline outline-2 outline-ink' : ''
         }`}
@@ -132,6 +209,11 @@ function LibraryTile({ item, chosen, onToggle }: { item: Item; chosen: boolean; 
           <span className="px-2 text-center text-fail">could not be processed</span>
         ) : (
           <span className="animate-pulse text-muted">{item.status.replace('_', ' ')}</span>
+        )}
+        {taken && (
+          <span className="pointer-events-none absolute bottom-1 left-1 rounded-[4px] bg-black/60 px-1 py-px text-[10px] leading-tight tabular-nums text-ink">
+            {taken}
+          </span>
         )}
       </button>
     </li>

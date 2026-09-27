@@ -7,6 +7,8 @@ export type UploadState = {
   fraction: number
   itemId?: string
   error?: string
+  /** The library holds these bytes in the trash. */
+  inTrash?: boolean
 }
 
 /**
@@ -53,6 +55,14 @@ export async function uploadBatch(
   for (const [index, file] of files.entries()) {
     const target = intent.items[index]
     states[index].itemId = target.itemId
+    // The bytes belong to an item in the trash. Offering them again is not a restore, and an album
+    // refuses it, so it is named here rather than failing the whole album add below.
+    if (target.inTrash) {
+      states[index].error = 'already in the library, in the trash'
+      states[index].inTrash = true
+      publish()
+      continue
+    }
     // The library already holds these bytes. Nothing to send, and nothing was reserved.
     if (target.alreadyHeld) {
       states[index].fraction = 1

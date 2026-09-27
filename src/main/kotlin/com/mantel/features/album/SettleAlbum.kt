@@ -2,6 +2,7 @@ package com.mantel.features.album
 
 import com.mantel.features.media.ItemState
 import com.mantel.features.media.MediaItems
+import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.update
 import java.time.OffsetDateTime
@@ -39,7 +40,7 @@ fun settleAlbum(
     val states =
         (AlbumItems innerJoin MediaItems)
             .selectAll()
-            .where { AlbumItems.albumId eq albumId }
+            .where { (AlbumItems.albumId eq albumId) and MediaItems.trashedAt.isNull() }
             .map { it[MediaItems.status] }
     val settled =
         states.isNotEmpty() && states.all { it == ItemState.SHAREABLE || it == ItemState.FAILED }
