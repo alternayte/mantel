@@ -39,6 +39,11 @@ data class ItemView(
      * poster frame. Present from the moment an item is backed up.
      */
     val displayUrl: String? = null,
+    /**
+     * A video's original, which the owner's phone plays: a library video that is in no album has
+     * no MP4, and its poster is not something to watch (SDD.md 4.4).
+     */
+    val originalUrl: String? = null,
     val takenAt: String? = null,
     /** SHA-256 of the original, so a phone can match its camera roll to the library. */
     val contentHash: String? = null,
@@ -111,6 +116,7 @@ fun ResultRow.toItemView(storage: ObjectStorage? = null): ItemView {
         lastError = this[MediaItems.lastError],
         thumbUrl = sign(this[MediaItems.thumbKey]),
         displayUrl = sign(display),
+        originalUrl = if (this[MediaItems.kind] == MediaKind.VIDEO) sign(this[MediaItems.originalKey]) else null,
         takenAt = this[MediaItems.takenAt].toInstant().toString(),
         contentHash = this[MediaItems.contentHash],
         trashedAt = this[MediaItems.trashedAt]?.toInstant()?.toString(),

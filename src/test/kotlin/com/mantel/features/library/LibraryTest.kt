@@ -306,6 +306,27 @@ class LibraryTest {
         }
 
     @Test
+    fun `a backed-up video carries its original to play, and a photograph does not`() =
+        withApp { harness ->
+            val browser = signedIn(harness)
+            val intent =
+                json.decodeFromString<UploadIntentResponse>(
+                    browser.post("/api/library/upload-intent") {
+                        contentType(ContentType.Application.Json)
+                        setBody(
+                            """{"files":[{"filename":"clip.mp4","contentType":"video/mp4","sizeBytes":10},""" +
+                                """{"filename":"a.jpg","contentType":"image/jpeg","sizeBytes":10}]}""",
+                        )
+                    }.bodyAsText(),
+                )
+            intent.items.forEach { harness.backUp(it.itemId) }
+
+            val items = browser.library().items.associateBy { it.filename }
+            assertTrue(items.getValue("clip.mp4").originalUrl!!.contains("/original.mp4"))
+            assertNull(items.getValue("a.jpg").originalUrl)
+        }
+
+    @Test
     fun `a thumbnail is served from the moment an item is backed up`() =
         withApp { harness ->
             val browser = signedIn(harness)

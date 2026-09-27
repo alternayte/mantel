@@ -100,6 +100,13 @@ sealed interface Screen {
         val newAlbumTitle: String = "",
         /** Something the last action wants said, such as what a delete left on the phone. */
         val note: String? = null,
+        /** The tile open full screen, if one is. The grid stays beneath it, where it was. */
+        val viewing: String? = null,
+        /** The tile the viewer last showed, so the grid can bring it into view on the way back. */
+        val returnTo: String? = null,
+        val showingInfo: Boolean = false,
+        /** The viewer's controls. A tap on the photograph hides them and shows them again. */
+        val chrome: Boolean = true,
         val busy: Boolean = false,
         val refreshing: Boolean = false,
         val error: String? = null,
@@ -200,7 +207,8 @@ data class SharedLink(
 val Screen.section: Section?
     get() =
         when (this) {
-            is Screen.Photos -> Section.PHOTOS
+            // Full screen means full screen: the bar goes while a photograph is open.
+            is Screen.Photos -> if (viewing == null) Section.PHOTOS else null
             is Screen.Albums -> Section.ALBUMS
             is Screen.Shared -> Section.SHARED
             else -> null
@@ -818,7 +826,18 @@ class AppModel(
         _screen.update<Screen.Photos> { current ->
             // A selection keeps only what is still on the timeline.
             val keys = timeline.tiles.mapTo(HashSet()) { it.key }
-            current.copy(timeline = timeline, selected = current.selected intersect keys)
+            // A photograph deleted from the viewer is gone from the timeline; the viewer moves on to
+            // the one that took its place rather than closing on nothing.
+            val viewing =
+                current.viewing?.let { key ->
+                    if (key in keys) {
+                        key
+                    } else {
+                        val at = current.timeline.tiles.indexOfFirst { it.key == key }.coerceAtLeast(0)
+                        timeline.tiles.getOrNull(at.coerceAtMost(timeline.tiles.lastIndex))?.key
+                    }
+                }
+            current.copy(timeline = timeline, selected = current.selected intersect keys, viewing = viewing)
         }
     }
 
@@ -838,6 +857,80 @@ class AppModel(
         next ?: return
         held.columns = next
         _screen.update<Screen.Photos> { it.copy(columns = next) }
+    }
+
+    // --- the viewer ---------------------------------------------------------------------------
+
+    /** A tap on a photograph, when nothing is selected, opens it full screen. */
+    fun openViewer(key: String) {
+        _screen.update<Screen.Photos> { it.copy(viewing = key, showingInfo = false, chrome = true, note = null) }
+    }
+
+    fun closeViewer() {
+        _screen.update<Screen.Photos> { it.copy(viewing = null, returnTo = it.viewing, showingInfo = false) }
+    }
+
+    /** A swipe settled on another photograph. Near the end of what is loaded, the next page is asked for. */
+    fun viewerMoved(key: String) {
+        val state = _screen.value as? Screen.Photos ?: return
+        _screen.update<Screen.Photos> { it.copy(viewing = key, showingInfo = false) }
+        val index = state.timeline.tiles.indexOfFirst { it.key == key }
+        if (index >= state.timeline.tiles.size - VIEWER_LOOKAHEAD) loadMorePhotos()
+    }
+
+    fun toggleChrome() {
+        _screen.update<Screen.Photos> { it.copy(chrome = !it.chrome) }
+    }
+
+    /** When it was taken, how large it is, and whether it lives on the phone, in the library, or both. */
+    fun toggleInfo() {
+        _screen.update<Screen.Photos> { it.copy(showingInfo = !it.showingInfo, chrome = true) }
+    }
+
+    private fun viewed(state: Screen.Photos): Tile? = state.timeline.tiles.firstOrNull { it.key == state.viewing }
+
+    fun shareViewed() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val tile = viewed(state) ?: return
+        _effects.value =
+            Effect.ShareMedia(
+                phone = listOfNotNull(tile.phone?.uri),
+                remote = if (tile.phone == null) listOfNotNull(tile.item?.displayUrl ?: tile.item?.thumbUrl) else emptyList(),
+            )
+    }
+
+    /** Add to album from the viewer is a selection of one, and the grid's album choice takes it from there. */
+    fun addViewedToAlbum() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val tile = viewed(state) ?: return
+        _screen.update<Screen.Photos> {
+            it.copy(viewing = null, returnTo = tile.key, showingInfo = false, selected = setOf(tile.key))
+        }
+        chooseAlbumForSelection()
+    }
+
+    /**
+     * To the trash, the library copy only. A photograph only on the phone stays, because Mantel never
+     * deletes from the phone; one on both keeps its phone copy on the timeline.
+     */
+    fun deleteViewed() {
+        val state = _screen.value as? Screen.Photos ?: return
+        val tile = viewed(state) ?: return
+        val itemId = tile.item?.id
+        if (itemId == null) {
+            _screen.update<Screen.Photos> {
+                it.copy(note = "This photograph is only on this phone, so it stays. Mantel never deletes from the phone.")
+            }
+            return
+        }
+        scope.launch {
+            onPhotos { api ->
+                api.moveToTrash(itemId)
+                forgetMedia()
+                _screen.update<Screen.Photos> { it.copy(busy = false, note = "Moved to the trash. It is kept for 30 days.") }
+                refreshPhotos()
+            }
+        }
     }
 
     // --- selection ----------------------------------------------------------------------------
@@ -1644,6 +1737,9 @@ class AppModel(
 
         /** Photographs to a row, from close to far. */
         val DENSITIES = listOf(3, 4, 6)
+
+        /** How close to the end of what is loaded a swipe in the viewer asks for the next page. */
+        const val VIEWER_LOOKAHEAD = 10
     }
 }
 

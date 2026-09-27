@@ -36,6 +36,8 @@ data class ItemView(
     val thumbUrl: String? = null,
     /** The 1600 px WebP, or a video's poster: what a photograph no longer on the phone opens at. */
     val displayUrl: String? = null,
+    /** A video's original, which the viewer plays when the video is not on this phone. */
+    val originalUrl: String? = null,
     /** When it was taken, as an ISO-8601 instant. */
     val takenAt: String? = null,
     val contentHash: String? = null,

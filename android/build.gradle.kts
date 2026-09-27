@@ -33,6 +33,12 @@ kotlin {
             // library item it became. It outlives the process, which is the whole point of it.
             implementation(libs.room.runtime)
             implementation(libs.room.ktx)
+            // The viewer. A fifty-megapixel original decoded whole is a crash; Telephoto draws the
+            // zoom from tiles of it. A player is its own problem, and Media3 is the one Android has.
+            implementation(libs.telephoto.zoomable.image.coil3)
+            implementation(libs.telephoto.flick)
+            implementation(libs.media3.exoplayer)
+            implementation(libs.media3.ui.compose)
 
             // @Preview renders a composable in the IDE without a device. The annotation ships; the
             // renderer that reads it is a debug-only dependency.

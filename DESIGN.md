@@ -133,6 +133,15 @@ count in the title's place, with Share, Add to album and Delete where the screen
 Pinch moves between three densities, three, four and six to a row. A handle on the right edge,
 `muted` at rest and the accent while held, scrolls by month and names the month it is on.
 
+## The viewer
+
+A photograph opens full screen on black, grown from its tile: the tile and the page share a key and
+Compose moves the one into the other, with the grid fading beneath. It fits the screen and is never
+cropped. Close sits at the top; Share, Add to album, Info and Delete at the foot, and a tap on the
+photograph hides them and shows them again. Swipe moves on; swipe down closes, dimming the black as
+the photograph falls away; it shrinks back into its tile. Info is a card at the foot in
+`surface-lift`. A video's scrubber is a hairline filled with the accent.
+
 ## The app's motion
 
 The viewer earns its stillness. The app is a tool, and a tool that gives no answer to a touch reads
@@ -144,6 +153,7 @@ as broken rather than calm. **Motion marks a change of state, and never decorate
 | A screen replaces another | The new screen fades up, the old fades out | `motion.medium` |
 | A thumbnail arrives | The image crossfades from the tile's `surface-lift` ground | `motion.medium` |
 | A state changes | The selection frame, the current section's accent | `motion.fast` |
+| A photograph opens or closes | It grows from its tile to the screen, and back | `motion.medium` |
 
 **Nothing waits on the network to appear.** A screen draws what the app already holds and refreshes
 underneath it. An animation over an empty screen animates the emptiness.

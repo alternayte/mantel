@@ -1,5 +1,12 @@
 package com.mantel.app.timeline
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -95,13 +102,46 @@ import kotlinx.coroutines.launch
  * photograph was taken. A photograph shows the moment it is taken, before it is backed up, and a
  * photograph on the phone and in the library shows once.
  */
+@kotlin.OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun PhotosScreen(
     state: Screen.Photos,
     model: AppModel,
 ) {
+    // The grid's place is held outside the transition, so closing the viewer returns to it.
     val grid = rememberLazyGridState()
+    SharedTransitionLayout(Modifier.fillMaxSize().background(Tokens.Colour.surface)) {
+        AnimatedContent(
+            targetState = state.viewing != null,
+            transitionSpec = {
+                val spec = tween<Float>(Tokens.Motion.medium, easing = Tokens.Motion.ease)
+                fadeIn(spec) togetherWith fadeOut(spec)
+            },
+            label = "viewer",
+        ) { open ->
+            ProvideViewerTransition(ViewerTransition(this@SharedTransitionLayout, this)) {
+                if (open) Viewer(state, model) else PhotosBody(state, model, grid)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PhotosBody(
+    state: Screen.Photos,
+    model: AppModel,
+    grid: LazyGridState,
+) {
     val pull = rememberPull(model::refresh)
+
+    // Back from the viewer: the photograph it ended on is brought into view, so it shrinks into its
+    // own tile rather than into the edge of the screen.
+    LaunchedEffect(state.returnTo) {
+        val key = state.returnTo ?: return@LaunchedEffect
+        val index = state.timeline.cells.indexOfFirst { it.key == key }
+        val visible = grid.layoutInfo.visibleItemsInfo.any { it.index == index }
+        if (index >= 0 && !visible) grid.scrollToItem(index)
+    }
     val backup by model.backupStatus.collectAsState()
 
     // The next page of the library is asked for before the grid runs out of what it has.
@@ -338,7 +378,7 @@ private fun TimelineGrid(
                         selecting = state.selecting,
                         selected = cell.tile.key in state.selected,
                         onClick = {
-                            if (state.selecting) model.toggleTile(cell.tile.key)
+                            if (state.selecting) model.toggleTile(cell.tile.key) else model.openViewer(cell.tile.key)
                         },
                     )
             }
@@ -439,7 +479,7 @@ private fun TimelineTile(
                         .build(),
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize().growsInto(tile.key),
             )
         }
         Badge(

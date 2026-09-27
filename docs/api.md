@@ -218,7 +218,9 @@ Each item carries:
   library.
 - `thumbUrl`: the 300 px WebP, from the moment the item is `backed_up`.
 - `displayUrl`: the 1600 px WebP for a photograph, the 1600 px poster frame for a video, from the
-  moment the item is `backed_up`. Both URLs are signed by the hour.
+  moment the item is `backed_up`.
+- `originalUrl`: a video's original, from the moment it is `backed_up`, because a library video in
+  no album has no MP4 to play. Absent for a photograph. All three URLs are signed by the hour.
 
 ### `POST /api/library/upload-intent`
 

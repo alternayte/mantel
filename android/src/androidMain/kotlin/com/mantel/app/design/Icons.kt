@@ -103,6 +103,16 @@ object Icons {
         )
     }
 
+    /** info.svg */
+    val Info: ImageVector by lazy {
+        lucide(
+            "Info",
+            "M2 12a10 10 0 1 0 20 0a10 10 0 1 0 -20 0Z",
+            "M12 16v-4",
+            "M12 8h.01",
+        )
+    }
+
     /** link-2.svg */
     val Link2: ImageVector by lazy {
         lucide(
@@ -120,6 +130,15 @@ object Icons {
             "m16 17 5-5-5-5",
             "M21 12H9",
             "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4",
+        )
+    }
+
+    /** pause.svg */
+    val Pause: ImageVector by lazy {
+        lucide(
+            "Pause",
+            "M15 3h3a1 1 0 0 1 1 1v16a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-16a1 1 0 0 1 1 -1Z",
+            "M6 3h3a1 1 0 0 1 1 1v16a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-16a1 1 0 0 1 1 -1Z",
         )
     }
 

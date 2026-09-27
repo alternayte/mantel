@@ -25,6 +25,11 @@ the only exception.
   taken. A photograph shows the moment it is taken, marked as not yet backed up until it is, and a
   photograph on the phone and in the library shows once. Showing the phone's photographs needs the
   media permission, which Photos asks for only when you tap "Show this phone's photographs".
+- **The viewer**: a photograph opens full screen from its tile. Swipe to move on, pinch or double-tap
+  to zoom, swipe down to close; a video plays with a scrubber. A photograph on the phone opens from
+  the phone; one only in the library opens at display size. Info says when it was taken, its size,
+  and whether it is on the phone, in the library, or both. Share, Add to album and Delete are there
+  too, and Delete never removes anything from the phone.
 - **Selecting**: hold a photograph to start, drag to extend, tap a day's heading to take the whole
   day. A selection can be shared, added to an album or a new one, or deleted. Pinch changes how many
   photographs fit in a row, and the handle on the right edge scrolls by month.
