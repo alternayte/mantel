@@ -5,6 +5,7 @@ import com.mantel.features.agent.Scope
 import com.mantel.features.agent.requireScope
 import com.mantel.features.media.ItemState
 import com.mantel.features.media.MediaItems
+import com.mantel.features.media.MediaKind
 import com.mantel.kernel.db
 import com.mantel.storage.ObjectStorage
 import io.ktor.server.application.ApplicationCall
@@ -33,6 +34,16 @@ data class ItemView(
     val filename: String? = null,
     /** The creator's own thumbnail. Signed by the hour, like the viewer's (SDD.md 3.2). */
     val thumbUrl: String? = null,
+    /**
+     * The 1600 px WebP, for viewing a photograph that is no longer on the phone. A video's is its
+     * poster frame. Present from the moment an item is backed up.
+     */
+    val displayUrl: String? = null,
+    val takenAt: String? = null,
+    /** SHA-256 of the original, so a phone can match its camera roll to the library. */
+    val contentHash: String? = null,
+    /** Present while the item is in the trash. */
+    val trashedAt: String? = null,
 )
 
 @Serializable
@@ -64,14 +75,17 @@ fun ResultRow.toSummary() =
 
 private val THUMB_LIFETIME: Duration = Duration.ofHours(6)
 
-/** A thumbnail exists from the moment an item is backed up, whether or not the rest does. */
+/** A thumbnail and a display WebP exist from the moment an item is backed up, whether or not the rest does. */
 private val RENDERED = setOf(ItemState.BACKED_UP, ItemState.SHAREABLE)
 
-/** Every item of an album, in the album's order, with its membership alongside it. */
+/**
+ * Every item of an album, in the album's order, with its membership alongside it. An item in the
+ * trash is not in the album, for the creator or for a recipient.
+ */
 fun itemsOf(albumId: AlbumId) =
     (AlbumItems innerJoin MediaItems)
         .selectAll()
-        .where { AlbumItems.albumId eq albumId }
+        .where { (AlbumItems.albumId eq albumId) and MediaItems.trashedAt.isNull() }
         .orderBy(AlbumItems.position to SortOrder.ASC)
         .toList()
 
@@ -79,8 +93,11 @@ fun itemsOf(albumId: AlbumId) =
  * A media item as a client sees it. `position` and `caption` come from the membership when the row
  * is read through an album, and are absent when it is read from the library, where it has neither.
  */
-fun ResultRow.toItemView(storage: ObjectStorage? = null) =
-    ItemView(
+fun ResultRow.toItemView(storage: ObjectStorage? = null): ItemView {
+    val rendered = this[MediaItems.status] in RENDERED
+    val sign = { key: String? -> key?.takeIf { rendered }?.let { storage?.presignGetForThisHour(it, THUMB_LIFETIME) } }
+    val display = if (this[MediaItems.kind] == MediaKind.VIDEO) this[MediaItems.posterKey] else this[MediaItems.displayWebpKey]
+    return ItemView(
         id = this[MediaItems.id].toString(),
         position = getOrNull(AlbumItems.position) ?: 0,
         kind = this[MediaItems.kind].wire,
@@ -92,11 +109,13 @@ fun ResultRow.toItemView(storage: ObjectStorage? = null) =
         durationMs = this[MediaItems.durationMs],
         filename = this[MediaItems.filename],
         lastError = this[MediaItems.lastError],
-        thumbUrl =
-            this[MediaItems.thumbKey]
-                ?.takeIf { this[MediaItems.status] in RENDERED }
-                ?.let { key -> storage?.presignGetForThisHour(key, THUMB_LIFETIME) },
+        thumbUrl = sign(this[MediaItems.thumbKey]),
+        displayUrl = sign(display),
+        takenAt = this[MediaItems.takenAt].toInstant().toString(),
+        contentHash = this[MediaItems.contentHash],
+        trashedAt = this[MediaItems.trashedAt]?.toInstant()?.toString(),
     )
+}
 
 suspend fun listAlbums(call: ApplicationCall) {
     call.respond(listAlbumsFor(requireScope(call, Scope.ALBUMS_READ)))

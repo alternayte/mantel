@@ -50,7 +50,8 @@ fun llmsTxt(config: Config): String =
     - Quota is checked before any upload URL exists. A batch that does not fit is refused whole.
     - A revoked or expired share link is `not_found`, never a message saying it was revoked.
     - EXIF is stripped from everything served. Originals keep theirs, and are an explicit choice.
-    - Deleting an album deletes bytes. There is no undo.
+    - `DELETE /api/library/{itemId}` moves a photograph to the trash for 30 days, and
+      `POST /api/library/{itemId}/restore` undoes it. Deleting an album keeps its photographs.
     """.trimIndent()
 
 // The state names come from the enums rather than being typed again here: a document that can
@@ -225,8 +226,8 @@ fun openApiDocument(config: Config): String =
         },
         "/api/library": {
           "get": {
-            "summary": "Every media item the account owns, newest first",
-            "description": "Needs albums:read. Pages by item id: pass the previous page's `next` as `after`.",
+            "summary": "Every media item the account owns, newest taken first",
+            "description": "Needs albums:read. The trash is not in it. Pages on (takenAt, id): pass the previous page's opaque `next` as `after`. Each item carries takenAt, contentHash, thumbUrl and displayUrl.",
             "parameters": [
               { "name": "after", "in": "query", "required": false, "schema": { "type": "string" } },
               { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" } }
@@ -236,10 +237,37 @@ fun openApiDocument(config: Config): String =
         },
         "/api/library/{itemId}": {
           "delete": {
-            "summary": "Delete media from the library",
-            "description": "Needs albums:write. Removes the bytes, frees quota, and takes the item out of every album.",
+            "summary": "Move media to the trash",
+            "description": "Needs albums:write. It leaves the library and every album. The worker removes its bytes 30 days later; until then it counts against quota and can be restored.",
             "parameters": [{ "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }],
-            "responses": { "204": { "description": "Deleted" } }
+            "responses": { "204": { "description": "In the trash" } }
+          }
+        },
+        "/api/library/{itemId}/restore": {
+          "post": {
+            "summary": "Bring media back from the trash",
+            "description": "Needs albums:write. It returns to the library and to every album it was in, at its old place.",
+            "parameters": [{ "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }],
+            "responses": { "204": { "description": "Restored" } }
+          }
+        },
+        "/api/library/trash": {
+          "get": {
+            "summary": "The trash, newest deletion first",
+            "description": "Needs albums:read. The library's page shape; each item carries trashedAt.",
+            "parameters": [
+              { "name": "after", "in": "query", "required": false, "schema": { "type": "string" } },
+              { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer" } }
+            ],
+            "responses": { "200": { "description": "A page of the trash" } }
+          }
+        },
+        "/api/library/trash/{itemId}": {
+          "delete": {
+            "summary": "Remove media from the trash now",
+            "description": "Needs albums:write. Removes the bytes and frees quota. Only an item in the trash.",
+            "parameters": [{ "name": "itemId", "in": "path", "required": true, "schema": { "type": "string" } }],
+            "responses": { "204": { "description": "Removed" }, "404": { "description": "Not in the trash" } }
           }
         },
         "/api/library/{itemId}/upload-progress": {
@@ -253,7 +281,7 @@ fun openApiDocument(config: Config): String =
         "/api/library/upload-intent": {
           "post": {
             "summary": "Check quota and get an upload URL per file, with no album",
-            "description": "Needs albums:write. The library keeps any file; an album takes only what can be rendered.",
+            "description": "Needs albums:write. The library keeps any file; an album takes only what can be rendered. Each file may declare takenAt, an ISO-8601 instant; the worker replaces it with what the file says.",
             "responses": { "200": { "description": "One presigned upload per file" } }
           }
         },
@@ -293,7 +321,9 @@ fun openApiDocument(config: Config): String =
                           "properties": {
                             "filename": { "type": "string" },
                             "contentType": { "type": "string" },
-                            "sizeBytes": { "type": "integer" }
+                            "sizeBytes": { "type": "integer" },
+                            "contentHash": { "type": "string" },
+                            "takenAt": { "type": "string", "format": "date-time" }
                           }
                         }
                       }

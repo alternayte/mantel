@@ -42,6 +42,9 @@ data class ExportedItem(
     val byteSize: Long,
     val renderable: Boolean,
     val createdAt: String,
+    val takenAt: String? = null,
+    /** Present for an item in the trash. It is still the person's until the sweep removes it. */
+    val trashedAt: String? = null,
 )
 
 @Serializable
@@ -75,6 +78,8 @@ suspend fun exportAccount(call: ApplicationCall) {
                                 byteSize = row[MediaItems.byteSize].value,
                                 renderable = row[MediaItems.renderable],
                                 createdAt = row[MediaItems.createdAt].toInstant().toString(),
+                                takenAt = row[MediaItems.takenAt].toInstant().toString(),
+                                trashedAt = row[MediaItems.trashedAt]?.toInstant()?.toString(),
                             )
                         }
                 val albums =

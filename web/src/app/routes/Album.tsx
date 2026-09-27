@@ -186,8 +186,11 @@ function UploadProgress({ uploads }: { uploads: UploadState[] }) {
                 style={{ width: `${Math.round((upload.error ? 1 : upload.fraction) * 100)}%` }}
               />
             </span>
-            <span className={`w-16 text-right tabular-nums ${upload.error ? 'text-fail' : 'text-muted'}`}>
-              {upload.error ? 'failed' : `${Math.round(upload.fraction * 100)}%`}
+            <span
+              className={`w-16 text-right tabular-nums ${upload.error ? 'text-fail' : 'text-muted'}`}
+              title={upload.error}
+            >
+              {upload.inTrash ? 'in trash' : upload.error ? 'failed' : `${Math.round(upload.fraction * 100)}%`}
             </span>
           </li>
         ))}

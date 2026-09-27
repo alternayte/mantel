@@ -36,6 +36,9 @@ data class UploadIntentRequest(val files: List<DeclaredFile>)
 /**
  * `contentHash` is the SHA-256 of the original bytes. A client that sends one is told when the
  * library already holds the file, and sends no bytes at all.
+ *
+ * `takenAt` is when the client believes the photograph was taken; a phone knows it before a byte
+ * moves. The worker replaces it with what the file itself says, where the file says anything.
  */
 @Serializable
 data class DeclaredFile(
@@ -43,6 +46,7 @@ data class DeclaredFile(
     val contentType: String,
     val sizeBytes: Long,
     val contentHash: String? = null,
+    val takenAt: String? = null,
 )
 
 @Serializable
@@ -66,6 +70,8 @@ data class PresignedUpload(
     val parts: List<PresignedPart>? = null,
     /** The library already holds these bytes. No URL is issued and nothing is reserved. */
     val alreadyHeld: Boolean = false,
+    /** The bytes are held by an item in the trash. It stays there: offering a file again is not a restore. */
+    val inTrash: Boolean = false,
 )
 
 /** The part boundaries for a file, all full except the last. */
@@ -81,7 +87,15 @@ fun partsFor(
 private val PRESIGN_LIFETIME: Duration = Duration.ofHours(1)
 private const val MAX_BATCH = 200
 
-private data class Reserved(val id: ItemId, val key: String, val file: DeclaredFile, val held: Boolean)
+private data class Reserved(
+    val id: ItemId,
+    val key: String,
+    val file: DeclaredFile,
+    val held: Boolean,
+    val inTrash: Boolean = false,
+)
+
+private data class Declared(val file: DeclaredFile, val size: Bytes, val takenAt: OffsetDateTime?)
 
 /** base64url and hex both appear in the wild; a SHA-256 is 64 hex characters here. */
 private val HASH = Regex("^[0-9a-f]{64}$")
@@ -165,7 +179,7 @@ suspend fun uploadIntentFor(
                     throw DomainException(ErrorCode.VALIDATION_FAILED, "${file.filename} declares a malformed hash")
                 }
             }
-            file to size
+            Declared(file, size, file.takenAt?.let { parseTakenAt(it) })
         }
 
     val now = OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC)
@@ -181,7 +195,7 @@ suspend fun uploadIntentFor(
             // Only bytes the account does not already hold cost anything. A photograph sent twice
             // counts once, whatever number of albums point at it.
             val alreadyHeld =
-                declared.mapNotNull { (file, _) -> file.contentHash }
+                declared.mapNotNull { it.file.contentHash }
                     .distinct()
                     .mapNotNull { hash -> held(accountId, hash)?.let { hash to it } }
                     .toMap()
@@ -190,10 +204,10 @@ suspend fun uploadIntentFor(
             // account already held it. A file that declares no hash is always its own item.
             val counted = mutableSetOf<String>()
             val batchSize =
-                declared.filterNot { (file, _) ->
-                    val hash = file.contentHash ?: return@filterNot false
+                declared.filterNot {
+                    val hash = it.file.contentHash ?: return@filterNot false
                     hash in alreadyHeld.keys || !counted.add(hash)
-                }.fold(Bytes.NONE) { total, (_, size) -> total + size }
+                }.fold(Bytes.NONE) { total, it -> total + it.size }
 
             if (!quota.fits(batchSize)) {
                 throw DomainException(
@@ -210,12 +224,19 @@ suspend fun uploadIntentFor(
             // the row the first created rather than inserting its hash again.
             val reservedByHash = mutableMapOf<String, Reserved>()
             val created =
-                declared.map { (file, size) ->
+                declared.map { (file, size, takenAt) ->
                     val hash = file.contentHash
                     val existing = hash?.let { alreadyHeld[it] }
                     if (existing != null) {
+                        // An item in the trash is refused by an album, and the refusal says why.
                         albumId?.let { addToAlbum(it, existing[MediaItems.id], now) }
-                        return@map Reserved(existing[MediaItems.id], existing[MediaItems.originalKey], file, held = true)
+                        return@map Reserved(
+                            existing[MediaItems.id],
+                            existing[MediaItems.originalKey],
+                            file,
+                            held = true,
+                            inTrash = existing[MediaItems.trashedAt] != null,
+                        )
                     }
                     val earlier = hash?.let { reservedByHash[it] }
                     if (earlier != null) {
@@ -238,6 +259,7 @@ suspend fun uploadIntentFor(
                         it[status] = ItemState.PENDING_UPLOAD
                         it[attempts] = 0
                         it[createdAt] = now
+                        it[MediaItems.takenAt] = takenAt ?: now
                     }
                     albumId?.let { addToAlbum(it, itemId, now) }
                     Reserved(itemId, key, file, held = false).also { fresh ->
@@ -268,6 +290,7 @@ suspend fun uploadIntentFor(
                         contentType = item.file.contentType,
                         sizeBytes = item.file.sizeBytes,
                         alreadyHeld = true,
+                        inTrash = item.inTrash,
                     )
                 } else if (item.file.sizeBytes <= config.storage.multipartThreshold.value) {
                     PresignedUpload(

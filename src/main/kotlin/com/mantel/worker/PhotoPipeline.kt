@@ -1,9 +1,14 @@
 package com.mantel.worker
 
 import java.nio.file.Path
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.concurrent.TimeUnit
 
-data class Thumbnail(val thumb: Path, val width: Int, val height: Int)
+/** What the library needs to show a photograph to its owner: the grid's thumbnail and the 1600 px WebP. */
+data class LibraryCopies(val thumb: Path, val displayWebp: Path, val width: Int, val height: Int)
 
 data class Derivatives(val thumb: Path, val displayWebp: Path, val displayAvif: Path, val width: Int, val height: Int)
 
@@ -46,15 +51,36 @@ class PhotoPipeline(private val vips: String = "vips", private val vipsheader: S
         run(vips, "thumbnail", source.toString(), "$target[Q=82,keep=none]", width.toString())
     }
 
-    /** What a backed-up photograph needs and nothing more: one thumbnail, for the library grid. */
-    fun thumbnailOnly(
+    /**
+     * What a backed-up photograph needs and nothing more: a thumbnail for the grid, and the display
+     * WebP a phone opens when the photograph is no longer on it. The AVIF is for a recipient.
+     */
+    fun libraryCopies(
         source: Path,
         into: Path,
-    ): Thumbnail {
+    ): LibraryCopies {
         val thumb = into.resolve("thumb.webp")
+        val displayWebp = into.resolve("display.webp")
         thumbnailTo(source, thumb, 300)
-        return Thumbnail(thumb, header(source, "width"), header(source, "height"))
+        thumbnailTo(source, displayWebp, 1600)
+        return LibraryCopies(thumb, displayWebp, header(source, "width"), header(source, "height"))
     }
+
+    /** The display WebP alone, for a photograph backed up before every photograph had one. */
+    fun displayWebp(
+        source: Path,
+        into: Path,
+    ): Path {
+        val displayWebp = into.resolve("display.webp")
+        thumbnailTo(source, displayWebp, 1600)
+        return displayWebp
+    }
+
+    /**
+     * When the file says it was taken, read before any derivative strips it. Null when it says
+     * nothing believable.
+     */
+    fun takenAt(source: Path): Instant? = takenAtFromHeader(run(vipsheader, "-a", source.toString()))
 
     fun render(
         source: Path,
@@ -102,3 +128,37 @@ class PhotoPipeline(private val vips: String = "vips", private val vipsheader: S
 }
 
 class PipelineFailure(message: String) : RuntimeException(message)
+
+private val EXIF_DATE_TIME: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyy:MM:dd HH:mm:ss")
+
+/**
+ * EXIF `DateTimeOriginal` from `vipsheader -a` output, which prints a field as
+ * `exif-ifd2-DateTimeOriginal: 2019:07:14 16:20:05 (2019:07:14 16:20:05, ASCII, 20 components, 20 bytes)`.
+ *
+ * The field is the camera's wall clock and names no zone. `OffsetTimeOriginal` supplies one where
+ * the camera wrote it, as modern phones do. Without it the wall clock is read as UTC, so the date
+ * and time a person sees are the ones the camera recorded.
+ */
+fun takenAtFromHeader(header: String): Instant? {
+    fun field(name: String): String? =
+        header.lineSequence()
+            .firstOrNull { it.startsWith("exif-ifd2-$name:") }
+            ?.substringAfter(':')
+            ?.trim()
+            ?.substringBefore(" (")
+            ?.trim()
+
+    val wallClock =
+        field("DateTimeOriginal")
+            ?.let { runCatching { LocalDateTime.parse(it.take(19), EXIF_DATE_TIME) }.getOrNull() }
+            ?: return null
+    val offset = field("OffsetTimeOriginal")?.let { runCatching { ZoneOffset.of(it) }.getOrNull() } ?: ZoneOffset.UTC
+    return wallClock.toInstant(offset).takeIf { plausiblyTaken(it) }
+}
+
+/**
+ * A camera with no clock set writes 1970, 1904 or a date that has not happened yet. None of those
+ * is when the photograph was taken, and the declared or upload time is a better guess.
+ */
+fun plausiblyTaken(instant: Instant): Boolean =
+    instant.isAfter(Instant.parse("1971-01-01T00:00:00Z")) && instant.isBefore(Instant.now().plusSeconds(86_400))

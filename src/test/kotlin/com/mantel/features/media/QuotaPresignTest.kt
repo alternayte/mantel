@@ -102,7 +102,7 @@ class QuotaPresignTest {
         }
 
     @Test
-    fun `deleting an item gives the space back`() =
+    fun `removing an item from the trash gives the space back`() =
         withApp { harness ->
             val browser = signedIn(harness)
             val album = browser.createAlbum().body<AlbumSummary>()
@@ -126,7 +126,12 @@ class QuotaPresignTest {
             assertEquals(900, browser.get("/api/me").body<Me>().storageUsedBytes)
             assertTrue(harness.storage.deletedPrefixes.isEmpty())
 
+            // Deleting it sends it to the trash, where its bytes still are and still count.
             assertEquals(HttpStatusCode.NoContent, browser.delete("/api/library/$itemId").status)
+            assertEquals(900, browser.get("/api/me").body<Me>().storageUsedBytes)
+            assertTrue(harness.storage.deletedPrefixes.isEmpty())
+
+            assertEquals(HttpStatusCode.NoContent, browser.delete("/api/library/trash/$itemId").status)
             assertEquals(0, browser.get("/api/me").body<Me>().storageUsedBytes)
             assertTrue(harness.storage.deletedPrefixes.any { it.contains(itemId) })
         }

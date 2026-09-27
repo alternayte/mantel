@@ -51,8 +51,9 @@ When it is on:
   backup standing, and nothing in the app can delete from the phone.
 - Turning it off stops new uploads and removes nothing, here or on the phone.
 
-Media backed up this way lands in the library with a thumbnail. The rest of its derivatives are
-rendered when it first joins an album — that is, when somebody might actually look at it.
+Media backed up this way lands in the library with a thumbnail and a 1600 px display copy, so you
+can open it after it has left the phone. The AVIF and the transcoded video a recipient's browser
+needs are rendered when it first joins an album.
 
 The library keeps whatever the camera produced, including formats this product cannot render. Those
 appear as a filename with no thumbnail and cannot be put in an album, because an album is what a

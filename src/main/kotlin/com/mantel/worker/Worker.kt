@@ -55,10 +55,17 @@ private data class DerivativesWritten(
     val width: Int,
     val height: Int,
     val durationMs: Int? = null,
+    val takenAt: String? = null,
 )
 
 @Serializable
 private data class WorkFailed(val error: String)
+
+@Serializable
+data class BackfillItem(val itemId: String, val originalKey: String, val displayWebpKey: String)
+
+@Serializable
+private data class DisplayWritten(val displayWebpKey: String, val takenAt: String? = null)
 
 @Serializable
 data class BundleEntry(
@@ -99,6 +106,9 @@ private data class QuotaRepair(val accountsChecked: Int, val accountsCorrected: 
 
 @Serializable
 private data class AbandonedSweep(val removed: Int)
+
+@Serializable
+private data class TrashSweep(val removed: Int)
 
 private val log = LoggerFactory.getLogger("com.mantel.worker")
 
@@ -165,7 +175,54 @@ class Worker(
                     report(item, "/failure", WorkFailed(failure.message ?: failure::class.simpleName.orEmpty()))
                 }
         }
-        return claimed.size + packBundles()
+        val bundled = packBundles()
+        // The backfill is what a worker does with nothing else to do: a photograph somebody just
+        // uploaded matters more than one that has waited since before display WebPs existed.
+        if (claimed.isNotEmpty() || bundled > 0) return claimed.size + bundled
+        return backfill()
+    }
+
+    /**
+     * Renders the display WebP for photographs backed up before every photograph had one. Each is
+     * one download and one resize; the item stays backed up and in the grid throughout.
+     */
+    @OptIn(kotlin.io.path.ExperimentalPathApi::class)
+    suspend fun backfill(): Int {
+        val response =
+            http.post("${config.publicBaseUrl}/api/worker/backfill/claim") {
+                authenticate()
+                contentType(ContentType.Application.Json)
+                setBody(ClaimRequest(config.worker.batchSize))
+            }
+        if (!response.status.isSuccess()) {
+            error("the API refused the backfill claim (${response.status}): ${response.bodyAsText()}")
+        }
+        val claimed: List<BackfillItem> = response.body()
+
+        claimed.forEach { item ->
+            val scratch: Path = Files.createTempDirectory("mantel-backfill-${item.itemId}")
+            try {
+                val original = scratch.resolve("original")
+                storage.download(item.originalKey, original)
+                val takenAt = photos.takenAt(original)
+                storage.upload(item.displayWebpKey, photos.displayWebp(original, scratch), "image/webp")
+                http.post("${config.publicBaseUrl}/api/worker/items/${item.itemId}/display") {
+                    authenticate()
+                    contentType(ContentType.Application.Json)
+                    setBody(DisplayWritten(item.displayWebpKey, takenAt?.toString()))
+                }
+            } catch (failure: Exception) {
+                log.warn("display WebP for {} failed: {}", item.itemId, failure.message)
+                // Unreported, the claim times out and the photograph is offered again; that is
+                // slower, not wrong, so a refused report must not take the worker down with it.
+                runCatching {
+                    http.post("${config.publicBaseUrl}/api/worker/items/${item.itemId}/display/failure") { authenticate() }
+                }
+            } finally {
+                scratch.deleteRecursively()
+            }
+        }
+        return claimed.size
     }
 
     /**
@@ -268,16 +325,21 @@ class Worker(
 
             when (item.kind) {
                 "photo" -> {
+                    // Read before any derivative is written: every derivative strips it.
+                    val takenAt = photos.takenAt(original)?.toString()
                     if (!item.full) {
-                        val size = photos.thumbnailOnly(original, scratch)
-                        storage.upload(item.thumbKey, size.thumb, "image/webp")
+                        val copies = photos.libraryCopies(original, scratch)
+                        storage.upload(item.thumbKey, copies.thumb, "image/webp")
+                        storage.upload(item.displayWebpKey, copies.displayWebp, "image/webp")
                         report(
                             item,
                             "/derivatives",
                             DerivativesWritten(
                                 thumbKey = item.thumbKey,
-                                width = size.width,
-                                height = size.height,
+                                displayWebpKey = item.displayWebpKey,
+                                width = copies.width,
+                                height = copies.height,
+                                takenAt = takenAt,
                             ),
                         )
                         return@process
@@ -295,6 +357,7 @@ class Worker(
                             displayAvifKey = item.displayAvifKey,
                             width = rendered.width,
                             height = rendered.height,
+                            takenAt = takenAt,
                         ),
                     )
                 }
@@ -314,6 +377,7 @@ class Worker(
                                 width = still.width,
                                 height = still.height,
                                 durationMs = still.durationMs,
+                                takenAt = still.takenAt?.toString(),
                             ),
                         )
                         return@process
@@ -332,6 +396,7 @@ class Worker(
                             width = rendered.width,
                             height = rendered.height,
                             durationMs = rendered.durationMs,
+                            takenAt = rendered.takenAt?.toString(),
                         ),
                     )
                 }
@@ -385,6 +450,15 @@ class Worker(
                     deleted += orphans.size
                 }
             } while (after != null)
+        }
+
+        // Thirty days in the trash. Before the quota repair, like the next, so the space comes
+        // back in the same sweep.
+        val emptied =
+            http.post("${config.publicBaseUrl}/api/worker/reconcile/trash") { authenticate() }
+                .body<TrashSweep>()
+        if (emptied.removed > 0) {
+            log.info("reconciliation: removed {} items that spent 30 days in the trash", emptied.removed)
         }
 
         // Declared and never sent. It runs before the quota repair, so the space those rows held

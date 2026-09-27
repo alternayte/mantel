@@ -15,8 +15,9 @@ export type AlbumSummary = {
 }
 
 /**
- * `backed_up` means the library holds the original and a thumbnail; `shareable` means every
- * derivative a viewer needs exists. They were one state called `ready` until the library existed.
+ * `backed_up` means the library holds the original, a thumbnail and a display WebP; `shareable`
+ * means every derivative a viewer needs exists. They were one state called `ready` until the
+ * library existed.
  */
 export type ItemStatus = 'pending_upload' | 'uploaded' | 'processing' | 'backed_up' | 'shareable' | 'failed'
 
@@ -36,6 +37,11 @@ export type Item = {
   lastError?: string | null
   filename?: string | null
   thumbUrl?: string | null
+  displayUrl?: string | null
+  /** When the photograph was taken: from the file where it says, the upload time where not. */
+  takenAt?: string | null
+  contentHash?: string | null
+  trashedAt?: string | null
 }
 
 export type AlbumView = AlbumSummary & { items: Item[] }
@@ -63,6 +69,8 @@ export type PresignedUpload = {
   parts?: PresignedPart[] | null
   /** The library already holds these bytes. Nothing to send. */
   alreadyHeld?: boolean
+  /** The bytes belong to an item in the trash, which stays there and cannot join an album. */
+  inTrash?: boolean
 }
 
 export type LibraryPage = { items: Item[]; next?: string | null; totalItems: number }
@@ -125,8 +133,9 @@ export const api = {
   archiveAlbum: (id: string) => call<void>(`/albums/${id}`, { method: 'DELETE' }),
 
   // Media lands in the library. An album is a selection from it, so an upload names no album.
+  /** Newest taken first. `after` is the previous page's opaque `next`. */
   library: (after?: string | null) =>
-    call<LibraryPage>(`/library${after ? `?after=${after}` : ''}`),
+    call<LibraryPage>(`/library${after ? `?after=${encodeURIComponent(after)}` : ''}`),
   uploadIntent: (files: DeclaredFile[]) =>
     call<{ items: PresignedUpload[]; expiresInSeconds: number }>('/library/upload-intent', {
       method: 'POST',
@@ -137,7 +146,9 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ itemIds }),
     }),
-  deleteFromLibrary: (itemId: string) => call<void>(`/library/${itemId}`, { method: 'DELETE' }),
+  /** Delete sends to the trash for 30 days; no client removes a photograph for good in one step. */
+  moveToTrash: (itemId: string) => call<void>(`/library/${itemId}`, { method: 'DELETE' }),
+  restoreFromTrash: (itemId: string) => call<void>(`/library/${itemId}/restore`, { method: 'POST' }),
   addToAlbum: (albumId: string, mediaItemIds: string[]) =>
     call<void>(`/albums/${albumId}/items`, { method: 'POST', body: JSON.stringify({ mediaItemIds }) }),
   uploadProgress: (albumId: string, itemId: string) =>

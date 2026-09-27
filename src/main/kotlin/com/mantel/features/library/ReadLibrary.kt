@@ -1,46 +1,41 @@
 package com.mantel.features.library
 
-import com.mantel.features.account.Accounts
-import com.mantel.features.account.quota
+import com.mantel.features.account.AccountId
 import com.mantel.features.agent.Scope
 import com.mantel.features.agent.requireScope
-import com.mantel.features.album.AlbumItems
-import com.mantel.features.album.Albums
-import com.mantel.features.album.albumBytesOf
-import com.mantel.features.album.albumSizeOf
-import com.mantel.features.album.settleAlbum
 import com.mantel.features.album.toItemView
 import com.mantel.features.media.ItemId
 import com.mantel.features.media.MediaItems
-import com.mantel.kernel.Clock
 import com.mantel.kernel.DomainException
 import com.mantel.kernel.ErrorCode
 import com.mantel.kernel.db
 import com.mantel.storage.ObjectStorage
-import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.response.respond
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.sql.ResultRow
+import org.jetbrains.exposed.sql.Column
+import org.jetbrains.exposed.sql.Op
 import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.eq
 import org.jetbrains.exposed.sql.SqlExpressionBuilder.less
 import org.jetbrains.exposed.sql.and
-import org.jetbrains.exposed.sql.deleteWhere
+import org.jetbrains.exposed.sql.or
 import org.jetbrains.exposed.sql.selectAll
-import org.jetbrains.exposed.sql.update
+import java.time.Instant
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import java.util.Base64
 import java.util.UUID
 
 /**
- * The library: every media item an account owns, newest first.
+ * The library: every media item an account owns, newest taken first. The trash is not in it.
  *
- * It pages by the item id rather than an offset. Ids are UUIDv7 and sort by creation time, so a
- * page boundary stays where it was while new media arrives at the front — an offset would show the
- * same photograph twice or skip one.
+ * It pages on (taken_at, id) rather than an offset. A backup adds photographs anywhere in the
+ * timeline, not only at the front, and an offset would then show one photograph twice or skip one;
+ * a position in the order stays where it was whatever arrives around it. The id breaks a tie
+ * between two photographs taken in the same instant.
  */
 @Serializable
 data class LibraryPage(
@@ -52,116 +47,88 @@ data class LibraryPage(
 private const val DEFAULT_PAGE = 100
 private const val MAX_PAGE = 500
 
+/**
+ * A place in an order of (timestamp, id), newest first. Opaque to a client, which hands back the
+ * `next` it was given.
+ */
+internal data class Cursor(val at: OffsetDateTime, val id: ItemId) {
+    fun encode(): String = Base64.getUrlEncoder().withoutPadding().encodeToString("${at.toInstant()}|${id.value}".toByteArray())
+
+    /** Rows after this one in `column DESC, id DESC` order. */
+    fun after(column: Column<OffsetDateTime>): Op<Boolean> = (column less at) or ((column eq at) and (MediaItems.id less id))
+
+    companion object {
+        fun decode(raw: String): Cursor? =
+            runCatching {
+                val (at, id) = String(Base64.getUrlDecoder().decode(raw)).split('|', limit = 2)
+                Cursor(OffsetDateTime.ofInstant(Instant.parse(at), ZoneOffset.UTC), ItemId(UUID.fromString(id)))
+            }.getOrNull()
+    }
+}
+
+internal data class PageRequest(val limit: Int, val after: String?)
+
+internal fun pageRequestOf(call: ApplicationCall) =
+    PageRequest(
+        limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: DEFAULT_PAGE).coerceIn(1, MAX_PAGE),
+        after = call.request.queryParameters["after"],
+    )
+
 suspend fun getLibrary(
     call: ApplicationCall,
     storage: ObjectStorage,
 ) {
-    val caller = requireScope(call, Scope.ALBUMS_READ)
-    val accountId = caller.accountId
-    val limit = (call.request.queryParameters["limit"]?.toIntOrNull() ?: DEFAULT_PAGE).coerceIn(1, MAX_PAGE)
-    val after =
-        call.request.queryParameters["after"]?.let {
-            runCatching { ItemId(UUID.fromString(it)) }.getOrNull()
-                ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That is not an item id")
-        }
+    val accountId = requireScope(call, Scope.ALBUMS_READ).accountId
+    val page = pageRequestOf(call)
+    val after = page.after?.let { libraryCursorOf(accountId, it) }
 
     val rows =
         db {
             MediaItems.selectAll()
                 .where {
-                    if (after == null) {
-                        MediaItems.accountId eq accountId
-                    } else {
-                        (MediaItems.accountId eq accountId) and (MediaItems.id.less(after))
-                    }
+                    val mine = (MediaItems.accountId eq accountId) and MediaItems.trashedAt.isNull()
+                    if (after == null) mine else mine and after.after(MediaItems.takenAt)
                 }
-                .orderBy(MediaItems.id to SortOrder.DESC)
-                .limit(limit + 1)
+                .orderBy(MediaItems.takenAt to SortOrder.DESC, MediaItems.id to SortOrder.DESC)
+                .limit(page.limit + 1)
                 .toList()
         }
-    val total = db { MediaItems.selectAll().where { MediaItems.accountId eq accountId }.count() }
+    val total =
+        db { MediaItems.selectAll().where { (MediaItems.accountId eq accountId) and MediaItems.trashedAt.isNull() }.count() }
 
-    val page = rows.take(limit)
-    val items = withContext(Dispatchers.IO) { page.map { it.toItemView(storage) } }
+    val shown = rows.take(page.limit)
+    val items = withContext(Dispatchers.IO) { shown.map { it.toItemView(storage) } }
     call.respond(
         LibraryPage(
             items = items,
-            next = if (rows.size > limit) page.last()[MediaItems.id].toString() else null,
+            next =
+                if (rows.size > page.limit) {
+                    shown.last().let { Cursor(it[MediaItems.takenAt], it[MediaItems.id]).encode() }
+                } else {
+                    null
+                },
             totalItems = total,
         ),
     )
 }
 
 /**
- * Deleting from the library is the only deletion that removes bytes. It takes the item out of every
- * album that holds it, because an album cannot point at a photograph that no longer exists.
+ * A cursor, or the bare item id a client released before the cursor existed sends. The phone app
+ * already installed pages that way, and it keeps working: the id names a row, and the row has a
+ * place in the order.
  */
-suspend fun deleteFromLibrary(
-    call: ApplicationCall,
-    storage: ObjectStorage,
-    clock: Clock = Clock.system,
-) {
-    val accountId = requireScope(call, Scope.ALBUMS_WRITE).accountId
-    val itemId =
-        call.parameters["itemId"]?.let { runCatching { ItemId(UUID.fromString(it)) }.getOrNull() }
-            ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
-
-    val item =
-        db {
-            MediaItems.selectAll()
-                .where { (MediaItems.id eq itemId) and (MediaItems.accountId eq accountId) }
-                .singleOrNull()
-        } ?: throw DomainException(ErrorCode.NOT_FOUND, "No such item")
-
-    removeItem(item, storage, OffsetDateTime.ofInstant(clock.now(), ZoneOffset.UTC))
-    call.respond(HttpStatusCode.NoContent)
-}
-
-/**
- * Takes one item out of the library: its bytes, its place in any album, and the quota it held.
- *
- * `deleteFromLibrary` is a person doing this deliberately; the abandoned-upload sweep does the same
- * thing to a row whose bytes never arrived. Both have to clean the same things, so both call this.
- */
-suspend fun removeItem(
-    item: ResultRow,
-    storage: ObjectStorage,
-    now: OffsetDateTime,
-) {
-    val itemId = item[MediaItems.id]
-    val prefix = item[MediaItems.originalKey].substringBeforeLast('/') + "/"
-    withContext(Dispatchers.IO) {
-        // An unfinished multipart upload holds bytes that no listing shows and no row points at.
-        item[MediaItems.uploadId]?.let { storage.abortMultipartUpload(item[MediaItems.originalKey], it) }
-        storage.deletePrefix(prefix)
-    }
-
-    db {
-        val affected =
-            AlbumItems.selectAll().where { AlbumItems.mediaItemId eq itemId }.map { it[AlbumItems.albumId] }
-        MediaItems.deleteWhere { MediaItems.id eq itemId }
-
-        affected.forEach { albumId ->
-            AlbumItems.selectAll()
-                .where { AlbumItems.albumId eq albumId }
-                .orderBy(AlbumItems.position)
-                .map { it[AlbumItems.mediaItemId] }
-                .forEachIndexed { index, id ->
-                    AlbumItems.update({ (AlbumItems.albumId eq albumId) and (AlbumItems.mediaItemId eq id) }) {
-                        it[position] = index
-                    }
-                }
-            Albums.update({ Albums.id eq albumId }) {
-                it[itemCount] = albumSizeOf(albumId)
-                it[totalBytes] = albumBytesOf(albumId)
-                it[updatedAt] = now
-            }
-            settleAlbum(albumId, now)
-        }
-
-        val account = Accounts.selectAll().where { Accounts.id eq item[MediaItems.accountId] }.single()
-        Accounts.update({ Accounts.id eq item[MediaItems.accountId] }) {
-            it[storageUsedBytes] = account.quota().release(item[MediaItems.byteSize]).used
-        }
-    }
+private suspend fun libraryCursorOf(
+    accountId: AccountId,
+    raw: String,
+): Cursor {
+    Cursor.decode(raw)?.let { return it }
+    val legacy =
+        runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
+            ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That is not a page of the library")
+    return db {
+        MediaItems.selectAll()
+            .where { (MediaItems.id eq legacy) and (MediaItems.accountId eq accountId) }
+            .singleOrNull()
+            ?.let { Cursor(it[MediaItems.takenAt], it[MediaItems.id]) }
+    } ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That is not a page of the library")
 }

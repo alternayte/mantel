@@ -10,7 +10,6 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 import kotlinx.serialization.Serializable
-import org.jetbrains.exposed.sql.and
 import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.update
 import java.time.OffsetDateTime
@@ -41,11 +40,8 @@ suspend fun updateAlbum(
             val itemId =
                 runCatching { ItemId(UUID.fromString(raw)) }.getOrNull()
                     ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That is not an item id")
-            db {
-                AlbumItems.selectAll()
-                    .where { (AlbumItems.mediaItemId eq itemId) and (AlbumItems.albumId eq albumId) }
-                    .singleOrNull()
-            } ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That item is not in this album")
+            db { itemsOf(albumId).singleOrNull { it[AlbumItems.mediaItemId] == itemId } }
+                ?: throw DomainException(ErrorCode.VALIDATION_FAILED, "That item is not in this album")
             itemId
         }
 

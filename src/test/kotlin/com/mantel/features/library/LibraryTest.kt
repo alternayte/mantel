@@ -66,6 +66,75 @@ class LibraryTest {
     private suspend fun HttpClient.usedBytes() = get("/api/me").body<Me>().storageUsedBytes
 
     @Test
+    fun `the library runs newest taken first, and the next page continues where the first stopped`() =
+        withApp { harness ->
+            val browser = signedIn(harness)
+            // Uploaded in an order that is not the order they were taken in, and two of them in
+            // the same second, so the tie on takenAt has to be broken by something stable.
+            val taken =
+                listOf(
+                    "old.jpg" to "2011-05-01T09:00:00Z",
+                    "new.jpg" to "2024-08-10T18:30:00+01:00",
+                    "twin-a.jpg" to "2019-07-14T16:20:05Z",
+                    "undated.jpg" to null,
+                    "twin-b.jpg" to "2019-07-14T16:20:05Z",
+                )
+            val files =
+                taken.joinToString(",") { (name, at) ->
+                    val declared = at?.let { ""","takenAt":"$it"""" }.orEmpty()
+                    """{"filename":"$name","contentType":"image/jpeg","sizeBytes":10$declared}"""
+                }
+            browser.post("/api/library/upload-intent") {
+                contentType(ContentType.Application.Json)
+                setBody("""{"files":[$files]}""")
+            }
+
+            val seen = mutableListOf<com.mantel.features.album.ItemView>()
+            var after: String? = null
+            do {
+                val page =
+                    json.decodeFromString<LibraryPage>(
+                        browser.get("/api/library?limit=2${after?.let { "&after=$it" }.orEmpty()}").bodyAsText(),
+                    )
+                assertTrue(page.items.size <= 2)
+                assertEquals(5, page.totalItems)
+                seen += page.items
+                after = page.next
+            } while (after != null)
+
+            // The undated one was placed at its upload time, 2026 on the test clock, so it is the
+            // newest. The twins sit together, in id order, whichever page boundary falls between.
+            assertEquals(listOf("undated.jpg", "new.jpg"), seen.take(2).map { it.filename })
+            assertEquals(setOf("twin-a.jpg", "twin-b.jpg"), seen.subList(2, 4).map { it.filename }.toSet())
+            assertEquals(seen.subList(2, 4).map { it.id }.sortedDescending(), seen.subList(2, 4).map { it.id })
+            assertEquals("old.jpg", seen[4].filename)
+            assertEquals(5, seen.map { it.id }.toSet().size)
+            assertEquals("2024-08-10T17:30:00Z", seen[1].takenAt)
+            assertEquals(harness.clock.now().toString(), seen[0].takenAt)
+
+            // A client released before the cursor pages by the last item's id, and still gets the
+            // rest of the library in the new order.
+            val legacy =
+                json.decodeFromString<LibraryPage>(browser.get("/api/library?after=${seen[1].id}").bodyAsText())
+            assertEquals(seen.drop(2).map { it.id }, legacy.items.map { it.id })
+        }
+
+    @Test
+    fun `a declared takenAt that names no moment is refused`() =
+        withApp { harness ->
+            val browser = signedIn(harness)
+            val refused =
+                browser.post("/api/library/upload-intent") {
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        """{"files":[{"filename":"a.jpg","contentType":"image/jpeg","sizeBytes":10,"takenAt":"2019-07-14 16:20"}]}""",
+                    )
+                }
+            assertEquals(HttpStatusCode.UnprocessableEntity, refused.status)
+            assertTrue(browser.library().items.isEmpty())
+        }
+
+    @Test
     fun `deleting an album keeps the photographs and the bytes`() =
         withApp { harness ->
             val browser = signedIn(harness)
